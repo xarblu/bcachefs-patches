@@ -73,10 +73,17 @@ function check_repo() {
     done
 }
 
-function expand_out_file() {
-    local tag="${1}"
+function last_tag() {
+    declare -g _LAST_TAG
 
-    # 
+    if [[ -z "${_LAST_TAG}" ]]; then
+        LAST_TAG="$(git describe --abbrev=0)"
+    fi
+
+    printf "%s" "${LAST_TAG}"
+}
+
+function expand_out_file() {
     if [[ "${OUT_FILE}" == *.patch ]]; then
         return 0
     fi
@@ -86,7 +93,11 @@ function expand_out_file() {
     fi
 
     if [[ -d "${OUT_FILE}" ]]; then
-        OUT_FILE="${OUT_FILE%/}/bcachefs-$(TZ=UTC date '+%Y%m%d%H%M%S')-for-${tag}.patch"
+        OUT_FILE="${OUT_FILE%/}/bcachefs-$(TZ=UTC date '+%Y%m%d%H%M%S')-for-$(last_tag).patch"
+    else
+        log "Output %s does not end with .patch and is not an existing directory" \
+            "${OUT_FILE}"
+        return 1
     fi
 }
 
@@ -96,13 +107,12 @@ function main() {
         return 1
     fi
 
-    local last_tag
-    last_tag="$(git describe --abbrev=0)"
+    expand_out_file || return 1
 
-    log "Detected last tag %s\n" "${last_tag}"
+    log "Detected last tag %s\n" "$(last_tag)"
 
     if confirm "Reset repo to that tag?"; then
-        git reset --hard "${last_tag}"
+        git reset --hard "$(last_tag)"
     fi
 
     if confirm "Cleanup any stale files/directories?"; then
@@ -117,7 +127,6 @@ function main() {
         git merge bcachefs/master
     fi
 
-    expand_out_file "${last_tag}"
     if confirm "Write patch to ${OUT_FILE}"; then
         git diff 'HEAD~' > "${OUT_FILE}"
     fi
