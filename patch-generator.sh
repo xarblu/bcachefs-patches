@@ -77,10 +77,10 @@ function last_tag() {
     declare -g _LAST_TAG
 
     if [[ -z "${_LAST_TAG}" ]]; then
-        LAST_TAG="$(git describe --abbrev=0)"
+        _LAST_TAG="$(git describe --abbrev=0)"
     fi
 
-    printf "%s" "${LAST_TAG}"
+    printf "%s" "${_LAST_TAG}"
 }
 
 function expand_out_file() {
@@ -108,6 +108,14 @@ function main() {
     fi
 
     expand_out_file || return 1
+
+    if confirm "Fetch origin?"; then
+        git fetch origin
+    fi
+
+    if confirm "Reset repo to master?"; then
+        git reset --hard origin/master
+    fi
 
     log "Detected last tag %s\n" "$(last_tag)"
 
