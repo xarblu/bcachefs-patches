@@ -83,8 +83,9 @@ function last_tag() {
     printf "%s" "${_LAST_TAG}"
 }
 
-function expand_out_file() {
+function out_file() {
     if [[ "${OUT_FILE}" == *.patch ]]; then
+        printf '%s' "${OUT_FILE}"
         return 0
     fi
 
@@ -97,8 +98,10 @@ function expand_out_file() {
     else
         log "Output %s does not end with .patch and is not an existing directory" \
             "${OUT_FILE}"
-        return 1
+        exit 1
     fi
+
+    printf '%s' "${OUT_FILE}"
 }
 
 function main() {
@@ -106,8 +109,6 @@ function main() {
         help
         return 1
     fi
-
-    expand_out_file || return 1
 
     if confirm "Fetch origin?"; then
         git fetch origin
@@ -135,8 +136,8 @@ function main() {
         git merge bcachefs/master
     fi
 
-    if confirm "Write patch to ${OUT_FILE}"; then
-        git diff 'HEAD~' > "${OUT_FILE}"
+    if confirm "Write patch to $(out_file)"; then
+        git diff 'HEAD~' > "$(out_file)"
     fi
 }
 main "${@}"
