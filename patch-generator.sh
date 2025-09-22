@@ -148,6 +148,10 @@ function main() {
         git fetch "${LINUX_REF%/*}"
     fi
 
+    if confirm "Fetch ${BCACHEFS_REF%/*}?"; then
+        git fetch "${BCACHEFS_REF%/*}"
+    fi
+
     if confirm "Reset repo to ${LINUX_REF}?"; then
         git reset --hard "${LINUX_REF}"
     fi
@@ -164,19 +168,11 @@ function main() {
         git clean -fdx
     fi
 
-    if confirm "Fetch ${BCACHEFS_REF%/*}?"; then
-        git fetch "${BCACHEFS_REF%/*}"
-    fi
-
-    if confirm "Merge ${BCACHEFS_REF}?"; then
-        git merge "${BCACHEFS_REF}"
-    fi
-
     out_file
     local file="${REPLY}"
 
     if confirm "Write patch to ${file}"; then
-        git diff 'HEAD~' > "${file}"
+        git diff "${tag}...${BCACHEFS_REF}" > "${file}"
     fi
 }
 
