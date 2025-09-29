@@ -8,14 +8,20 @@
 #   - origin -> git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 #   - bcachefs -> git://evilpiepirate.org/bcachefs.git
 
-# git refs used
-declare -g LINUX_REF='origin/master'
-declare -g BCACHEFS_REF='bcachefs/for-next'
+# git repos and remotes used
+declare -g LINUX_REPO="${BASH_SOURCE[0]%/*}/../linux"
+declare -g LINUX_REMOTE='origin'
+declare -g LINUX_BCACHEFS_REMOTE='bcachefs'
+
+declare -g BCACHEFS_TOOLS_REPO="${BASH_SOURCE[0]%/*}/../bcachefs-tools"
+declare -g BCACHEFS_TOOLS_REMOTE='origin'
 
 # log utility function writing to stderr
 function log() {
+    local fmt="${1}"
+    shift
     # shellcheck disable=SC2059
-    printf "${@}" 1>&2
+    printf " \e[32m*\e[0m ${fmt}\n" "${@}" 1>&2
 }
 
 # Y/n prompt
@@ -27,18 +33,18 @@ function confirm() {
         case "${response,,}" in
             y|yes|'') return 0 ;;
             n|no) return 1 ;;
-            *) log 'Bad response\n' ;;
+            *) log 'Bad response: %s' "${response}" ;;
         esac
     done
 }
 
 # --help listing
 function help() {
-    log 'Usage:\n'
-    log '  -o|--output  Output file or directory\n'
-    log '               If file (.patch extension) this exact file is used\n'
-    log '               If directory (must exist) auto generate a patch\n'
-    log '               If not given auto generates file in current directory\n'
+    log 'Usage:'
+    log '  -o|--output  Output file or directory'
+    log '               If file (.patch extension) this exact file is used'
+    log '               If directory (must exist) auto generate a patch'
+    log '               If not given auto generates file in current directory'
 }
 
 # argparser
@@ -47,7 +53,7 @@ function parse_args() {
         case "${1}" in
             -o|--output)
                 if (( ${#} < 2 )); then
-                    log 'Expected argument after %s\n' "${1}"
+                    log 'Expected argument after %s' "${1}"
                     exit 1
                 fi
                 OUT_FILE="${2}"
@@ -58,65 +64,55 @@ function parse_args() {
                 exit 0
                 ;;
             *)
-                log 'Bad argument %s\n' "${1}"
+                log 'Bad argument %s' "${1}"
                 exit 1
                 ;;
         esac
     done
 }
 
-# basic checks if repo is valid
-function check_repo() {
+# basic check if repo in cwd has remotes passed as args
+function check_remotes() {
     # basic check if we're in a git repo
     if [[ ! -d .git ]]; then
-        log '.git does not exist\n'
-        log 'Is the current directory a linux source tree?\n'
+        log '.git does not exist'
+        log 'Is the current directory a linux source tree?'
         exit 1
     fi
 
     # check if we have required remotes
     local remote url
-    for remote in "${LINUX_REF%/*}" "${BCACHEFS_REF%/*}"; do
+    for remote in "${@}"; do
         if url=$(git remote get-url "${remote}"); then
-            log 'Using remote %s from %s\n' "${remote}" "${url}" 
+            log 'Using remote %s from %s' "${remote}" "${url}" 
         else
-            log 'Expected remote %s does not exist\n' "${remote}"
+            log 'Expected remote %s does not exist' "${remote}"
             exit 1
         fi
     done
 }
 
-# get last git tag name before the checked-out commit
+# get last git tag name before ref in arg 1
 # returned in REPLY
 function last_tag() {
-    declare -g _LAST_TAG
-
-    if [[ -z "${_LAST_TAG}" ]]; then
-        _LAST_TAG="$(git describe --abbrev=0)"
-    fi
-
-    REPLY="${_LAST_TAG}"
-}
-
-# get date of last commit formatted as
-# YYYYmmDDHHMMSS
-# returned in REPLY
-function get_ref_date() {
     local ref="${1}"
-    local unix_time
-    if ! unix_time="$(git log -n 1 --format=%ct "${ref}")"; then
-        log 'Bad ref: %s\n' "${ref}"
+    local tag
+    if ! tag="$(git describe --abbrev=0 "${ref}")"; then
+        log 'Failed to get tag for ref: %s' "${ref}"
         exit 1
     fi
 
-    TZ=UTC0 printf -v REPLY '%(%Y%m%d%H%M%S)T' "${unix_time}"
+    REPLY="${tag}"
 }
 
 # generate output file name
 # returned in REPLY
-function out_file() {
+function generate_out_file() {
+    local bcachefs_tag="${1}"
+    local linux_tag="${2}"
+
     if [[ "${OUT_FILE}" == *.patch ]]; then
-        REPLY="${OUT_FILE}"
+        REPLY="$(readlink -m "${OUT_FILE}")"
         return 0
     fi
 
@@ -125,54 +121,90 @@ function out_file() {
     fi
 
     if [[ -d "${OUT_FILE}" ]]; then
-        get_ref_date "${BCACHEFS_REF}"
-        local bch_date="${REPLY}"
-        last_tag
-        local lnx_tag="${REPLY}"
-        OUT_FILE="${OUT_FILE%/}/bcachefs-${bch_date}-for-${lnx_tag}.patch"
+        OUT_FILE="${OUT_FILE%/}/bcachefs-${bcachefs_tag}-for-${linux_tag}.patch"
     else
-        log 'Output %s does not end with .patch and is not an existing directory\n' \
+        log 'Output %s does not end with .patch and is not an existing directory' \
             "${OUT_FILE}"
         exit 1
     fi
 
-    REPLY="${OUT_FILE}"
+    REPLY="$(readlink -m "${OUT_FILE}")"
+}
+
+# detect latest stable bcachefs revision
+# based on bcachefs-tools tagged release
+# result in REPLY as tag:commit
+function update_bcachefs_tools() {
+    log 'Detecting latest stable bcachefs commit from bcachefs-tools'
+
+    if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
+        log 'Failed to cd into bcachefs-tools source tree: %s' "${BCACHEFS_TOOLS_REPO}"
+        exit 1
+    fi
+
+    check_remotes "${BCACHEFS_TOOLS_REMOTE}"
+
+    log 'Fetching updates via git'
+    git fetch "${BCACHEFS_TOOLS_REMOTE}"
+
+    last_tag "${BCACHEFS_TOOLS_REMOTE}/master"
+    local tag="${REPLY}"
+    log 'Detected last tag: %s' "${tag}"
+
+    local commit
+    if ! commit="$(git cat-file -p "${tag}:.bcachefs_revision")"; then
+        log 'Failed to cat .bcachefs_revision at tag %s' "${tag}"
+        exit 1
+    fi
+
+    log 'Detected commit %s for tag %s' "${commit}" "${tag}"
+
+    REPLY="${tag}:${commit}"
+
+    popd >/dev/null || exit 1
+}
+
+# update linux source tree and return latest tag in REPLY
+function update_linux() {
+    log 'Preparing linux source tree'
+
+    if ! pushd "${LINUX_REPO}" >/dev/null; then
+        log 'Failed to cd into linux source tree: %s' "${LINUX_REPO}"
+        exit 1
+    fi
+
+    check_remotes "${LINUX_REMOTE}" "${LINUX_BCACHEFS_REMOTE}"
+
+    log 'Fetching updates via git'
+    git fetch "${LINUX_REMOTE}"
+    git fetch "${LINUX_BCACHEFS_REMOTE}"
+
+    last_tag "${LINUX_REMOTE}/master"
+    local tag="${REPLY}"
+    log 'Detected last tag: %s' "${tag}"
+
+    REPLY="${tag}"
+
+    popd >/dev/null || exit 1
 }
 
 function main() {
     parse_args "${@}"
 
-    check_repo
+    update_bcachefs_tools
+    local bcachefs_tag bcachefs_commit
+    IFS=':' read -r bcachefs_tag bcachefs_commit <<<"${REPLY}"
 
-    if confirm "Fetch ${LINUX_REF%/*}?"; then
-        git fetch "${LINUX_REF%/*}"
-    fi
+    update_linux
+    local linux_tag=${REPLY}
 
-    if confirm "Fetch ${BCACHEFS_REF%/*}?"; then
-        git fetch "${BCACHEFS_REF%/*}"
-    fi
-
-    if confirm "Reset repo to ${LINUX_REF}?"; then
-        git reset --hard "${LINUX_REF}"
-    fi
-
-    last_tag
-    local tag="${REPLY}"
-    log 'Detected last tag %s\n' "${tag}"
-
-    if confirm 'Reset repo to that tag?'; then
-        git reset --hard "${tag}"
-    fi
-
-    if confirm 'Cleanup any stale files/directories?'; then
-        git clean -fdx
-    fi
-
-    out_file
+    generate_out_file "${bcachefs_tag}" "${linux_tag}"
     local file="${REPLY}"
 
     if confirm "Write patch to ${file}"; then
-        git diff "${tag}...${BCACHEFS_REF}" > "${file}"
+        pushd "${LINUX_REPO}" >/dev/null || exit 1
+        git diff "${linux_tag}...${bcachefs_commit}" > "${file}"
+        popd >/dev/null || exit 1
     fi
 }
 
