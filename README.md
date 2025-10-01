@@ -27,17 +27,17 @@ which optionally includes these bcachefs patches.
 To use it enable the repo:
 
 ```bash
-# eselect repository enable xarblu-overlay
+eselect repository enable xarblu-overlay
 ```
 
 Then enable `USE=bcachefs` for `sys-kernel/cachyos-kernel`:
 
 ```bash
-# echo sys-kernel/cachyos-kernel bcachefs > /etc/portage/package.use/cachyos_kernel_bcachefs
+echo sys-kernel/cachyos-kernel bcachefs > /etc/portage/package.use/cachyos_kernel_bcachefs
 ```
 
 And finally emerge the kernel:
 
 ```bash
-# emerge --ask sys-kernel/cachyos-kernel
+emerge --ask sys-kernel/cachyos-kernel
 ```
