@@ -45,6 +45,7 @@ function help() {
     log '               If file (.patch extension) this exact file is used'
     log '               If directory (must exist) auto generate a patch'
     log '               If not given auto generates file in current directory'
+    log '  -t|--tag     Linux tag to base patch on. Latest if unset.'
 }
 
 # argparser
@@ -56,9 +57,18 @@ function parse_args() {
                     log 'Expected argument after %s' "${1}"
                     exit 1
                 fi
-                OUT_FILE="${2}"
-                shift 2
+                shift
+                OUT_FILE="${1}"
                 ;;
+            -t|--tag)
+                if (( ${#} < 2 )); then
+                    log 'Expected argument after %s' "${1}"
+                    exit 1
+                fi
+                shift
+                TAG="${1}"
+                ;;
+
             -h|--help)
                 help
                 exit 0
@@ -68,6 +78,7 @@ function parse_args() {
                 exit 1
                 ;;
         esac
+        shift
     done
 }
 
@@ -179,9 +190,19 @@ function update_linux() {
     git fetch "${LINUX_REMOTE}"
     git fetch "${LINUX_BCACHEFS_REMOTE}"
 
-    last_tag "${LINUX_REMOTE}/master"
-    local tag="${REPLY}"
-    log 'Detected last tag: %s' "${tag}"
+    local tag
+    if [[ -n "${TAG}" ]]; then
+        tag="${TAG}"
+        if ! git show "${tag}" &>/dev/null; then
+            log 'Specified tag does not exist: %s' "${tag}"
+            exit 1
+        fi
+        log 'Using specified tag: %s' "${tag}"
+    else
+        last_tag "${LINUX_REMOTE}/master"
+        tag="${REPLY}"
+        log 'Detected last tag: %s' "${tag}"
+    fi
 
     REPLY="${tag}"
 
@@ -196,14 +217,25 @@ function main() {
     IFS=':' read -r bcachefs_tag bcachefs_commit <<<"${REPLY}"
 
     update_linux
-    local linux_tag=${REPLY}
+    local linux_tag="${REPLY}"
 
     generate_out_file "${bcachefs_tag}" "${linux_tag}"
     local file="${REPLY}"
 
+    # We need to limit the diff path to bcachefs related stuff
+    # to not pull in random bits when diffing with older tags.
+    # Kent's tree seems to occasionally touch things like
+    # closures.h or generic-radix-tree.h
+    # which we'll ignore for now unless that starts causing issues.
+    # DKMS wouldn't have those changes either
+    local -a bch_paths=(
+            Documentation/filesystems/bcachefs
+            fs/bcachefs
+    )
+
     if confirm "Write patch to ${file}"; then
         pushd "${LINUX_REPO}" >/dev/null || exit 1
-        git diff "${linux_tag}...${bcachefs_commit}" > "${file}"
+        git diff "${linux_tag}...${bcachefs_commit}" -- "${bch_paths[@]}" > "${file}"
         popd >/dev/null || exit 1
     fi
 }
