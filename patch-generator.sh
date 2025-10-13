@@ -232,6 +232,7 @@ function glue_patch() {
                         "${script_dir}/6.18/bcachefs-glue-v1.31.7-bio_init.patch"
                         "${script_dir}/6.18/bcachefs-glue-v1.31.7-namei_c-renames.patch"
                         "${script_dir}/6.18/bcachefs-glue-v1.31.7-wq-changes.patch"
+                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-bio_iov_iter_get_pages-changes.patch"
                     )
                     ;;
             esac
