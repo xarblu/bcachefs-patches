@@ -1,0 +1,67 @@
+diff --git a/fs/bcachefs/btree_io.c b/fs/bcachefs/btree_io.c
+index 3808c41dda84..e33de3de2069 100644
+--- a/fs/bcachefs/btree_io.c
++++ b/fs/bcachefs/btree_io.c
+@@ -2084,7 +2084,7 @@ int bch2_btree_node_scrub(struct btree_trans *trans,
+ 
+ 	INIT_WORK(&scrub->work, btree_node_scrub_work);
+ 
+-	bio_init(&scrub->bio, ca->disk_sb.bdev, scrub->bio.bi_inline_vecs, vecs, REQ_OP_READ);
++	bio_init_inline(&scrub->bio, ca->disk_sb.bdev, vecs, REQ_OP_READ);
+ 	bch2_bio_map(&scrub->bio, scrub->buf, c->opts.btree_node_size);
+ 	scrub->bio.bi_iter.bi_sector	= pick.ptr.offset;
+ 	scrub->bio.bi_end_io		= btree_node_scrub_endio;
+diff --git a/fs/bcachefs/data_update.c b/fs/bcachefs/data_update.c
+index 3b071f9a62cf..75b5f5e3f050 100644
+--- a/fs/bcachefs/data_update.c
++++ b/fs/bcachefs/data_update.c
+@@ -710,8 +710,8 @@ static int __bch2_data_update_bios_init(struct data_update *m, struct bch_fs *c,
+ 	if (!m->bvecs)
+ 		return -ENOMEM;
+ 
+-	bio_init(&m->rbio.bio,		NULL, m->bvecs, nr_vecs, REQ_OP_READ);
+-	bio_init(&m->op.wbio.bio,	NULL, m->bvecs, nr_vecs, 0);
++	bio_init_inline(&m->rbio.bio,		NULL, nr_vecs, REQ_OP_READ);
++	bio_init_inline(&m->op.wbio.bio,	NULL, nr_vecs, 0);
+ 
+ 	if (bch2_bio_alloc_pages(&m->op.wbio.bio, buf_bytes, GFP_KERNEL)) {
+ 		kfree(m->bvecs);
+diff --git a/fs/bcachefs/journal.c b/fs/bcachefs/journal.c
+index d9faa5a2fc89..179dc2e7ffb0 100644
+--- a/fs/bcachefs/journal.c
++++ b/fs/bcachefs/journal.c
+@@ -1624,7 +1624,7 @@ int bch2_dev_journal_init(struct bch_dev *ca, struct bch_sb *sb)
+ 
+ 		ja->bio[i]->ca = ca;
+ 		ja->bio[i]->buf_idx = i;
+-		bio_init(&ja->bio[i]->bio, NULL, ja->bio[i]->bio.bi_inline_vecs, nr_bvecs, 0);
++		bio_init_inline(&ja->bio[i]->bio, NULL, nr_bvecs, 0);
+ 	}
+ 
+ 	ja->buckets = kcalloc(ja->nr, sizeof(u64), GFP_KERNEL);
+diff --git a/fs/bcachefs/journal_io.c b/fs/bcachefs/journal_io.c
+index e6f778bf7763..c37af3acc87b 100644
+--- a/fs/bcachefs/journal_io.c
++++ b/fs/bcachefs/journal_io.c
+@@ -1094,7 +1094,7 @@ static int journal_read_bucket(struct bch_dev *ca,
+ 			bio = bio_kmalloc(nr_bvecs, GFP_KERNEL);
+ 			if (!bio)
+ 				return bch_err_throw(c, ENOMEM_journal_read_bucket);
+-			bio_init(bio, ca->disk_sb.bdev, bio->bi_inline_vecs, nr_bvecs, REQ_OP_READ);
++			bio_init_inline(bio, ca->disk_sb.bdev, nr_bvecs, REQ_OP_READ);
+ 
+ 			bio->bi_iter.bi_sector = offset;
+ 			bch2_bio_map(bio, buf->data, sectors_read << 9);
+diff --git a/fs/bcachefs/super-io.c b/fs/bcachefs/super-io.c
+index 98d31a1f9630..c4522640952e 100644
+--- a/fs/bcachefs/super-io.c
++++ b/fs/bcachefs/super-io.c
+@@ -229,7 +229,7 @@ int bch2_sb_realloc(struct bch_sb_handle *sb, unsigned u64s)
+ 		if (!bio)
+ 			return -BCH_ERR_ENOMEM_sb_bio_realloc;
+ 
+-		bio_init(bio, NULL, bio->bi_inline_vecs, nr_bvecs, 0);
++		bio_init_inline(bio, NULL, nr_bvecs, 0);
+ 
+ 		kfree(sb->bio);
+ 		sb->bio = bio;

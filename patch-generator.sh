@@ -227,7 +227,10 @@ function glue_patch() {
             glue+=( "${script_dir}/6.18/bcachefs-glue-kconf.patch" )
             case "${bcachefs_tag}" in
                 v1.31.7)
-                    glue+=( "${script_dir}/6.18/bcachefs-glue-v1.31.7.patch" )
+                    glue+=(
+                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-kvmalloc_noprof.patch"
+                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-bio_init.patch"
+                    )
                     ;;
             esac
             ;;
@@ -244,7 +247,7 @@ function glue_patch() {
             exit 1
         fi
 
-        log 'Appending glue file: %s' "${f}"
+        log 'Appending glue patch: %s' "${f}"
         cat "${f}" || exit 1
     done
 }
