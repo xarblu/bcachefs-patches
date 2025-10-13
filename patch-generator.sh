@@ -233,9 +233,13 @@ function main() {
             fs/bcachefs
     )
 
+    local diff="${linux_tag}..${bcachefs_commit}"
+    
+    log 'About to diff: %s' "${diff}"
+
     if confirm "Write patch to ${file}"; then
         pushd "${LINUX_REPO}" >/dev/null || exit 1
-        git diff "${linux_tag}...${bcachefs_commit}" -- "${bch_paths[@]}" > "${file}"
+        git diff "${diff}" -- "${bch_paths[@]}" > "${file}"
         popd >/dev/null || exit 1
     fi
 }
