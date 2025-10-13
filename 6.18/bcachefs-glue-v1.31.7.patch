@@ -1,21 +1,21 @@
 diff --git a/fs/bcachefs/darray.c b/fs/bcachefs/darray.c
-index e86d36d23e9e..928e83a1ce42 100644
+index 6940037bd19e..ca2cecfb490f 100644
 --- a/fs/bcachefs/darray.c
 +++ b/fs/bcachefs/darray.c
-@@ -21,7 +21,7 @@ int __bch2_darray_resize_noprof(darray_char *d, size_t element_size, size_t new_
- 			return -ENOMEM;
+@@ -24,7 +24,7 @@ int __bch2_darray_resize_noprof(darray_char *d, size_t element_size, size_t new_
  
- 		void *data = likely(bytes < INT_MAX)
+ 		void *old = d->data;
+ 		void *new = likely(bytes < INT_MAX)
 -			? kvmalloc_noprof(bytes, gfp)
 +			? kvmalloc_node_align_noprof(bytes, 1, gfp, NUMA_NO_NODE)
  			: vmalloc_noprof(bytes);
- 		if (!data)
+ 		if (!new)
  			return -ENOMEM;
 diff --git a/fs/bcachefs/util.h b/fs/bcachefs/util.h
-index 6488f098d140..7112fd40ee21 100644
+index eb4222f0f34b..6154d2565592 100644
 --- a/fs/bcachefs/util.h
 +++ b/fs/bcachefs/util.h
-@@ -61,7 +61,7 @@ static inline void *bch2_kvmalloc_noprof(size_t n, gfp_t flags)
+@@ -60,7 +60,7 @@ static inline void *bch2_kvmalloc_noprof(size_t n, gfp_t flags)
  {
  	void *p = unlikely(n >= INT_MAX)
  		? vmalloc_noprof(n)
