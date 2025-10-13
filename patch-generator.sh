@@ -230,6 +230,7 @@ function glue_patch() {
                     glue+=(
                         "${script_dir}/6.18/bcachefs-glue-v1.31.7-kvmalloc_noprof.patch"
                         "${script_dir}/6.18/bcachefs-glue-v1.31.7-bio_init.patch"
+                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-namei_c-renames.patch"
                     )
                     ;;
             esac
