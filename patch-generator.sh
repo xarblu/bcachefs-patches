@@ -209,6 +209,37 @@ function update_linux() {
     popd >/dev/null || exit 1
 }
 
+# write glue patch for KConfig and Makefile
+# to stdout
+# required for 6.18+ due to upstream removal
+function glue_patch() {
+    local tag="${1}"
+
+    local script_dir="${BASH_SOURCE[0]%/*}"
+
+    local glue
+    case "${tag}" in
+        v6.17*)
+            return 0
+            ;;
+        v6.18*)
+            glue="${script_dir}/6.18/bcachefs-kconf-glue.patch"
+            ;;
+        *)
+            log 'Unknown tag: %s' "${tag}"
+            return 1
+            ;;
+    esac
+
+    if [[ ! -f "${glue}" ]]; then
+        log 'Glue patch does not exist: %s' "${glue}"
+        exit 1
+    fi
+
+    log 'Appending glue file: %s' "${glue}"
+    cat "${glue}" || exit 1
+}
+
 function main() {
     parse_args "${@}"
 
@@ -241,6 +272,7 @@ function main() {
         pushd "${LINUX_REPO}" >/dev/null || exit 1
         git diff "${diff}" -- "${bch_paths[@]}" > "${file}"
         popd >/dev/null || exit 1
+        glue_patch "${linux_tag}" >> "${file}"
     fi
 }
 

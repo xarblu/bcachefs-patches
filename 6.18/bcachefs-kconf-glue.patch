@@ -1,0 +1,24 @@
+diff --git a/fs/Kconfig b/fs/Kconfig
+index 7815379032da..c654a3642897 100644
+--- a/fs/Kconfig
++++ b/fs/Kconfig
+@@ -51,6 +51,7 @@ source "fs/ocfs2/Kconfig"
+ source "fs/btrfs/Kconfig"
+ source "fs/nilfs2/Kconfig"
+ source "fs/f2fs/Kconfig"
++source "fs/bcachefs/Kconfig"
+ source "fs/zonefs/Kconfig"
+ 
+ endif # BLOCK
+diff --git a/fs/Makefile b/fs/Makefile
+index e3523ab2e587..334654f9584b 100644
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -121,6 +121,7 @@ obj-$(CONFIG_OCFS2_FS)		+= ocfs2/
+ obj-$(CONFIG_BTRFS_FS)		+= btrfs/
+ obj-$(CONFIG_GFS2_FS)           += gfs2/
+ obj-$(CONFIG_F2FS_FS)		+= f2fs/
++obj-$(CONFIG_BCACHEFS_FS)	+= bcachefs/
+ obj-$(CONFIG_CEPH_FS)		+= ceph/
+ obj-$(CONFIG_PSTORE)		+= pstore/
+ obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
