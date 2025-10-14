@@ -220,22 +220,13 @@ function glue_patch() {
 
     local -a glue
     case "${linux_tag}" in
-        v6.17*)
-            return 0
-            ;;
+        v6.17*) ;;
         v6.18*)
-            glue+=( "${script_dir}/6.18/bcachefs-glue-kconf.patch" )
-            case "${bcachefs_tag}" in
-                v1.31.7)
-                    glue+=(
-                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-kvmalloc_noprof.patch"
-                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-bio_init.patch"
-                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-namei_c-renames.patch"
-                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-wq-changes.patch"
-                        "${script_dir}/6.18/bcachefs-glue-v1.31.7-bio_iov_iter_get_pages-changes.patch"
-                    )
-                    ;;
-            esac
+            glue+=( "${script_dir}/6.18/glue/bcachefs-glue-kconf.patch" )
+
+            if [[ -d "${script_dir}/6.18/glue/v1.31.8/" ]]; then
+                glue+=( "${script_dir}/6.18/glue/v1.31.8/"*.patch )
+            fi
             ;;
         *)
             log 'Unknown Linux tag: %s' "${linux_tag}"

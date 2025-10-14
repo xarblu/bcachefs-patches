@@ -1,0 +1,110 @@
+From ec986ee97978b857628b34ae9d53efe1b89523fe Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 14 Oct 2025 21:29:53 +0200
+Subject: [PATCH 5/7] bcachefs: system_unbound_wq->system_dfl_wq on 6.18
+
+Based on https://github.com/torvalds/linux/commit/7a4f92d39f66f890cbb157dd4d7daf6a9298324a
+---
+ fs/bcachefs/btree/write_buffer.c |  5 +++++
+ fs/bcachefs/data/read.c          | 17 +++++++++++++++++
+ fs/bcachefs/journal/read.c       |  4 ++++
+ 3 files changed, 26 insertions(+)
+
+diff --git a/fs/bcachefs/btree/write_buffer.c b/fs/bcachefs/btree/write_buffer.c
+index 25c97d3a4f58..6c9fda674638 100644
+--- a/fs/bcachefs/btree/write_buffer.c
++++ b/fs/bcachefs/btree/write_buffer.c
+@@ -22,6 +22,7 @@
+ 
+ #include <linux/prefetch.h>
+ #include <linux/sort.h>
++#include <linux/version.h>
+ 
+ static int bch2_btree_write_buffer_journal_flush(struct journal *,
+ 				struct journal_entry_pin *, u64);
+@@ -824,7 +825,11 @@ int bch2_journal_keys_to_write_buffer_end(struct bch_fs *c, struct journal_keys_
+ 
+ 	if (bch2_btree_write_buffer_should_flush(c) &&
+ 	    __enumerated_ref_tryget(&c->writes, BCH_WRITE_REF_btree_write_buffer) &&
++# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
+ 	    !queue_work(system_unbound_wq, &c->btree_write_buffer.flush_work))
++# else
++	    !queue_work(system_dfl_wq, &c->btree_write_buffer.flush_work))
++# endif
+ 		enumerated_ref_put(&c->writes, BCH_WRITE_REF_btree_write_buffer);
+ 
+ 	if (dst->wb == &wb->flushing)
+diff --git a/fs/bcachefs/data/read.c b/fs/bcachefs/data/read.c
+index 84b95df2890e..239e0a33e974 100644
+--- a/fs/bcachefs/data/read.c
++++ b/fs/bcachefs/data/read.c
+@@ -36,6 +36,7 @@
+ #include <linux/moduleparam.h>
+ #include <linux/random.h>
+ #include <linux/sched/mm.h>
++#include <linux/version.h>
+ 
+ static unsigned __maybe_unused bch2_read_corrupt_ratio;
+ static int __maybe_unused bch2_read_corrupt_device;
+@@ -729,7 +730,11 @@ static void bch2_rbio_error(struct bch_read_bio *rbio,
+ 
+ 	if (bch2_err_matches(ret, BCH_ERR_data_read_retry)) {
+ 		bch2_rbio_punt(rbio, bch2_rbio_retry,
++# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
+ 			       RBIO_CONTEXT_UNBOUND, system_unbound_wq);
++# else
++			       RBIO_CONTEXT_UNBOUND, system_dfl_wq);
++# endif
+ 	} else {
+ 		rbio = bch2_rbio_free(rbio);
+ 
+@@ -963,10 +968,18 @@ static void __bch2_read_endio(struct work_struct *work)
+ 	bch2_rbio_error(rbio, -BCH_ERR_data_read_retry_csum_err, BLK_STS_IOERR);
+ 	goto out;
+ decompression_err:
++# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
+ 	bch2_rbio_punt(rbio, bch2_read_decompress_err, RBIO_CONTEXT_UNBOUND, system_unbound_wq);
++# else
++	bch2_rbio_punt(rbio, bch2_read_decompress_err, RBIO_CONTEXT_UNBOUND, system_dfl_wq);
++# endif
+ 	goto out;
+ decrypt_err:
++# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
+ 	bch2_rbio_punt(rbio, bch2_read_decrypt_err, RBIO_CONTEXT_UNBOUND, system_unbound_wq);
++# else
++	bch2_rbio_punt(rbio, bch2_read_decrypt_err, RBIO_CONTEXT_UNBOUND, system_dfl_wq);
++# endif
+ 	goto out;
+ }
+ 
+@@ -1005,7 +1018,11 @@ static void bch2_read_endio(struct bio *bio)
+ 	    rbio->promote ||
+ 	    crc_is_compressed(rbio->pick.crc) ||
+ 	    bch2_csum_type_is_encryption(rbio->pick.crc.csum_type))
++# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
+ 		context = RBIO_CONTEXT_UNBOUND,	wq = system_unbound_wq;
++# else
++		context = RBIO_CONTEXT_UNBOUND,	wq = system_dfl_wq;
++# endif
+ 	else if (rbio->pick.crc.csum_type)
+ 		context = RBIO_CONTEXT_HIGHPRI,	wq = system_highpri_wq;
+ 
+diff --git a/fs/bcachefs/journal/read.c b/fs/bcachefs/journal/read.c
+index 7ecbc837de6e..ce9cce626ce0 100644
+--- a/fs/bcachefs/journal/read.c
++++ b/fs/bcachefs/journal/read.c
+@@ -1379,7 +1379,11 @@ int bch2_journal_read(struct bch_fs *c,
+ 					  BCH_DEV_READ_REF_journal_read))
+ 			closure_call(&ca->journal.read,
+ 				     bch2_journal_read_device,
++# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
+ 				     system_unbound_wq,
++# else
++				     system_dfl_wq,
++# endif
+ 				     &jlist.cl);
+ 		else
+ 			degraded = true;
+-- 
+2.51.0
+
