@@ -1,7 +1,7 @@
 From b0932abb6dec63dc4ec293eced52c3f55684029c Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Tue, 14 Oct 2025 21:51:55 +0200
-Subject: [PATCH 7/7] bcachefs: bi_inline_vecs removal in 6.18
+Subject: [PATCH 7/8] bcachefs: bi_inline_vecs removal in 6.18
 
 Based on https://github.com/torvalds/linux/commit/d86eaa0f3c56da286853b698b45c8ce404291082
 ---

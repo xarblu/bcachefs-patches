@@ -1,7 +1,7 @@
 From c700374ad03fc08395302d070521ee50455c21be Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Tue, 14 Oct 2025 21:14:46 +0200
-Subject: [PATCH 2/7] bcachefs: bio_init changes for 6.18
+Subject: [PATCH 2/8] bcachefs: bio_init changes for 6.18
 
 ---
  fs/bcachefs/btree/read.c   | 5 +++++

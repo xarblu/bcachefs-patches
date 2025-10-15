@@ -1,7 +1,7 @@
 From ec986ee97978b857628b34ae9d53efe1b89523fe Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Tue, 14 Oct 2025 21:29:53 +0200
-Subject: [PATCH 5/7] bcachefs: system_unbound_wq->system_dfl_wq on 6.18
+Subject: [PATCH 5/8] bcachefs: system_unbound_wq->system_dfl_wq on 6.18
 
 Based on https://github.com/torvalds/linux/commit/7a4f92d39f66f890cbb157dd4d7daf6a9298324a
 ---

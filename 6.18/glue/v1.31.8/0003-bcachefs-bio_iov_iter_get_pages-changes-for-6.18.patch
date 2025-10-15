@@ -1,7 +1,7 @@
 From fa4ae07bdc76e7d0435f23790a804f62e31480f0 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Tue, 14 Oct 2025 21:17:15 +0200
-Subject: [PATCH 3/7] bcachefs: bio_iov_iter_get_pages changes for 6.18
+Subject: [PATCH 3/8] bcachefs: bio_iov_iter_get_pages changes for 6.18
 
 ---
  fs/bcachefs/vfs/direct.c | 9 +++++++++

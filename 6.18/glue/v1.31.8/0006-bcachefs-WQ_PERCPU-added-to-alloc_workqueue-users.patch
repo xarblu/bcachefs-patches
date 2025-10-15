@@ -1,7 +1,7 @@
 From 35b885bd3f197aa0e9a5c724cc986ee8f05a1e3a Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Tue, 14 Oct 2025 21:36:29 +0200
-Subject: [PATCH 6/7] bcachefs: WQ_PERCPU added to alloc_workqueue users
+Subject: [PATCH 6/8] bcachefs: WQ_PERCPU added to alloc_workqueue users
 
 Based on https://github.com/torvalds/linux/commit/69635d7f4b344e6f5344bba3c3de92e4fb8b0d2a
 ---

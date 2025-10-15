@@ -1,7 +1,7 @@
 From dfb4196f9585779e889c8eab582e609292055669 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Tue, 14 Oct 2025 21:22:19 +0200
-Subject: [PATCH 4/7] bcachefs: namei changes for 6.18
+Subject: [PATCH 4/8] bcachefs: namei changes for 6.18
 
 ---
  fs/bcachefs/vfs/ioctl.c | 17 +++++++++++++++++
