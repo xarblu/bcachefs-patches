@@ -1,9 +1,8 @@
-From 51fab2f32be89abfb0282c1b79390a9b1b37ca69 Mon Sep 17 00:00:00 2001
+From 6cc23e180f048ded730d7c63c7dc4398aaed87bb Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
-Date: Wed, 15 Oct 2025 09:27:05 +0200
-Subject: [PATCH 8/8] block: re-export bio_iov_iter_get_pages
+Date: Wed, 15 Oct 2025 20:26:53 +0200
+Subject: [PATCH 2/2] block: re-export bio_iov_iter_get_pages
 
-Needed by bcachefs
 ---
  block/bio.c | 1 +
  1 file changed, 1 insertion(+)

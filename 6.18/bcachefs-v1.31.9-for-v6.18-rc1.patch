@@ -26099,10 +26099,10 @@ index 000000000000..07e848354712
 +}
 diff --git a/fs/bcachefs/btree/interior.c b/fs/bcachefs/btree/interior.c
 new file mode 100644
-index 000000000000..4882b9fd84d6
+index 000000000000..08073076ebfa
 --- /dev/null
 +++ b/fs/bcachefs/btree/interior.c
-@@ -0,0 +1,2693 @@
+@@ -0,0 +1,2682 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include "bcachefs.h"
@@ -26764,24 +26764,9 @@ index 000000000000..4882b9fd84d6
 +		try(bch2_key_trigger_old(trans, as->btree_id, i->level + 1, bkey_i_to_s_c(&i->key),
 +					 BTREE_TRIGGER_transactional));
 +
-+	darray_for_each(as->new_nodes, i) {
-+		/*
-+		 * Use key from cached btree node, not the key we saved before,
-+		 * to avoid racing with bch2_btree_node_update_key()
-+		 *
-+		 * We need an intent lock held on the node we're marking to
-+		 * avoid racing with btree_node_update_key() - unless the node
-+		 * has already been freed:
-+		 */
-+		CLASS(btree_iter_uninit, iter)(trans);
-+		int ret = bch2_btree_node_get_iter(trans, &iter, i->b);
-+		if (ret == -BCH_ERR_btree_node_dying)
-+			ret = 0;
-+		try(ret);
-+
-+		try(bch2_key_trigger_new(trans, as->btree_id, i->level + 1, bkey_i_to_s(&i->b->key),
++	darray_for_each(as->new_nodes, i)
++		try(bch2_key_trigger_new(trans, as->btree_id, i->level + 1, bkey_i_to_s(&i->key),
 +					 BTREE_TRIGGER_transactional));
-+	}
 +
 +	return 0;
 +}
@@ -26865,22 +26850,11 @@ index 000000000000..4882b9fd84d6
 +			BCH_TRANS_COMMIT_no_check_rw|
 +			BCH_TRANS_COMMIT_journal_reclaim,
 +			btree_update_nodes_written_trans(trans, as));
-+err:
-+	/*
-+	 * Clear will_make_reachable while we still hold intent locks on all our
-+	 * new nodes, to avoid racing with btree_node_update_key():
-+	 */
-+	scoped_guard(mutex, &c->btree_interior_update_lock)
-+		darray_for_each(as->new_nodes, i) {
-+			BUG_ON(i->b->will_make_reachable != (unsigned long) as);
-+			i->b->will_make_reachable = 0;
-+			clear_btree_node_will_make_reachable(i->b);
-+		}
-+
 +	bch2_trans_unlock(trans);
 +
 +	bch2_fs_fatal_err_on(ret && !bch2_journal_error(&c->journal), c,
 +			     "%s", bch2_err_str(ret));
++err:
 +	/*
 +	 * Ensure transaction is unlocked before using btree_node_lock_nopath()
 +	 * (the use of which is always suspect, we need to work on removing this
@@ -26965,6 +26939,13 @@ index 000000000000..4882b9fd84d6
 +	}
 +
 +	bch2_journal_pin_drop(&c->journal, &as->journal);
++
++	scoped_guard(mutex, &c->btree_interior_update_lock)
++		darray_for_each(as->new_nodes, i) {
++			BUG_ON(i->b->will_make_reachable != (unsigned long) as);
++			i->b->will_make_reachable = 0;
++			clear_btree_node_will_make_reachable(i->b);
++		}
 +
 +	darray_for_each(as->new_nodes, i) {
 +		btree_node_lock_nopath_nofail(trans, &i->b->c, SIX_LOCK_read);
@@ -28511,55 +28492,47 @@ index 000000000000..4882b9fd84d6
 +{
 +	struct bch_fs *c = trans->c;
 +
-+	if (!btree_node_will_make_reachable(b)) {
-+		if (!skip_triggers) {
-+			try(bch2_key_trigger_old(trans, b->c.btree_id, b->c.level + 1,
-+						 bkey_i_to_s_c(&b->key),
-+						 BTREE_TRIGGER_transactional));
-+			try(bch2_key_trigger_new(trans, b->c.btree_id, b->c.level + 1,
-+						 bkey_i_to_s(new_key),
-+						 BTREE_TRIGGER_transactional));
-+		}
-+
-+		CLASS(btree_iter_uninit, iter2)(trans);
-+		struct btree *parent = btree_node_parent(btree_iter_path(trans, iter), b);
-+		if (parent) {
-+			bch2_trans_copy_iter(&iter2, iter);
-+
-+			iter2.path = bch2_btree_path_make_mut(trans, iter2.path,
-+					iter2.flags & BTREE_ITER_intent,
-+					_THIS_IP_);
-+
-+			struct btree_path *path2 = btree_iter_path(trans, &iter2);
-+			BUG_ON(path2->level != b->c.level);
-+			BUG_ON(!bpos_eq(path2->pos, new_key->k.p));
-+
-+			btree_path_set_level_up(trans, path2);
-+
-+			trans->paths_sorted = false;
-+
-+			try(bch2_btree_iter_traverse(&iter2));
-+			try(bch2_trans_update(trans, &iter2, new_key, BTREE_TRIGGER_norun));
-+		} else {
-+			BUG_ON(!btree_node_is_root(c, b));
-+
-+			struct jset_entry *e = errptr_try(bch2_trans_jset_entry_alloc(trans,
-+									jset_u64s(new_key->k.u64s)));
-+
-+			journal_entry_set(e,
-+					  BCH_JSET_ENTRY_btree_root,
-+					  b->c.btree_id, b->c.level,
-+					  new_key, new_key->k.u64s);
-+		}
-+
-+		try(bch2_trans_commit(trans, NULL, NULL, commit_flags));
-+	} else {
-+		/*
-+		 * Node is not visible on disk yet, we only need to update the
-+		 * key in the btree node cache - btree_update_nodes_written()
-+		 * will pick it up:
-+		 */
++	if (!skip_triggers) {
++		try(bch2_key_trigger_old(trans, b->c.btree_id, b->c.level + 1,
++					 bkey_i_to_s_c(&b->key),
++					 BTREE_TRIGGER_transactional));
++		try(bch2_key_trigger_new(trans, b->c.btree_id, b->c.level + 1,
++					 bkey_i_to_s(new_key),
++					 BTREE_TRIGGER_transactional));
 +	}
++
++	CLASS(btree_iter_uninit, iter2)(trans);
++	struct btree *parent = btree_node_parent(btree_iter_path(trans, iter), b);
++	if (parent) {
++		bch2_trans_copy_iter(&iter2, iter);
++
++		iter2.path = bch2_btree_path_make_mut(trans, iter2.path,
++				iter2.flags & BTREE_ITER_intent,
++				_THIS_IP_);
++
++		struct btree_path *path2 = btree_iter_path(trans, &iter2);
++		BUG_ON(path2->level != b->c.level);
++		BUG_ON(!bpos_eq(path2->pos, new_key->k.p));
++
++		btree_path_set_level_up(trans, path2);
++
++		trans->paths_sorted = false;
++
++		try(bch2_btree_iter_traverse(&iter2));
++		try(bch2_trans_update(trans, &iter2, new_key, BTREE_TRIGGER_norun));
++	} else {
++		BUG_ON(!btree_node_is_root(c, b));
++
++		struct jset_entry *e = errptr_try(bch2_trans_jset_entry_alloc(trans,
++								jset_u64s(new_key->k.u64s)));
++
++		journal_entry_set(e,
++				  BCH_JSET_ENTRY_btree_root,
++				  b->c.btree_id, b->c.level,
++				  new_key, new_key->k.u64s);
++	}
++
++	try(bch2_trans_commit(trans, NULL, NULL, commit_flags));
 +
 +	bch2_btree_node_lock_write_nofail(trans, btree_iter_path(trans, iter), &b->c);
 +	bkey_copy(&b->key, new_key);
@@ -28580,6 +28553,22 @@ index 000000000000..4882b9fd84d6
 +					       commit_flags, skip_triggers);
 +	--path->intent_ref;
 +	return ret;
++}
++
++int bch2_btree_node_update_key_get_iter(struct btree_trans *trans,
++					struct btree *b, struct bkey_i *new_key,
++					unsigned commit_flags, bool skip_triggers)
++{
++	CLASS(btree_iter_uninit, iter)(trans);
++	int ret = bch2_btree_node_get_iter(trans, &iter, b);
++	if (ret)
++		return ret == -BCH_ERR_btree_node_dying ? 0 : ret;
++
++	bch2_bkey_drop_ptrs(bkey_i_to_s(new_key), p, entry,
++			    !bch2_bkey_has_device(bkey_i_to_s(&b->key), p.ptr.dev));
++
++	return bch2_btree_node_update_key(trans, &iter, b, new_key,
++					  commit_flags, skip_triggers);
 +}
 +
 +/* Init code: */
@@ -28798,10 +28787,10 @@ index 000000000000..4882b9fd84d6
 +}
 diff --git a/fs/bcachefs/btree/interior.h b/fs/bcachefs/btree/interior.h
 new file mode 100644
-index 000000000000..d0895df9b740
+index 000000000000..5a6e8d2fc023
 --- /dev/null
 +++ b/fs/bcachefs/btree/interior.h
-@@ -0,0 +1,362 @@
+@@ -0,0 +1,364 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef _BCACHEFS_BTREE_UPDATE_INTERIOR_H
 +#define _BCACHEFS_BTREE_UPDATE_INTERIOR_H
@@ -28994,6 +28983,8 @@ index 000000000000..d0895df9b740
 +int bch2_btree_node_update_key(struct btree_trans *, struct btree_iter *,
 +			       struct btree *, struct bkey_i *,
 +			       unsigned, bool);
++int bch2_btree_node_update_key_get_iter(struct btree_trans *, struct btree *,
++					struct bkey_i *, unsigned, bool);
 +
 +void bch2_btree_set_root_for_read(struct bch_fs *, struct btree *);
 +
@@ -35191,10 +35182,10 @@ index 000000000000..4495fc92f848
 +#endif /* _BCACHEFS_BTREE_JOURNAL_ITER_TYPES_H */
 diff --git a/fs/bcachefs/btree/key_cache.c b/fs/bcachefs/btree/key_cache.c
 new file mode 100644
-index 000000000000..b39e651a4446
+index 000000000000..d3506f3f1558
 --- /dev/null
 +++ b/fs/bcachefs/btree/key_cache.c
-@@ -0,0 +1,863 @@
+@@ -0,0 +1,861 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include "bcachefs.h"
@@ -35296,6 +35287,7 @@ index 000000000000..b39e651a4446
 +	struct bkey_cached *ck = container_of(rcu, struct bkey_cached, rcu);
 +
 +	this_cpu_dec(*c->btree_key_cache.nr_pending);
++	six_lock_exit(&ck->c.lock);
 +	kmem_cache_free(bch2_key_cache, ck);
 +}
 +
@@ -35355,7 +35347,7 @@ index 000000000000..b39e651a4446
 +				rcu_pending_dequeue(&bc->pending[pcpu_readers]),
 +				struct bkey_cached, rcu);
 +	if (ck)
-+		goto lock;
++		return ck;
 +
 +	ck = allocate_dropping_locks(trans, ret,
 +				     __bkey_cached_alloc(key_u64s, _gfp));
@@ -35369,17 +35361,11 @@ index 000000000000..b39e651a4446
 +	if (ck) {
 +		bch2_btree_lock_init(&ck->c, pcpu_readers ? SIX_LOCK_INIT_PCPU : 0, GFP_KERNEL);
 +		ck->c.cached = true;
-+		goto lock;
++		return ck;
 +	}
 +
-+	ck = container_of_or_null(rcu_pending_dequeue_from_all(&bc->pending[pcpu_readers]),
-+				  struct bkey_cached, rcu);
-+	if (ck)
-+		goto lock;
-+lock:
-+	six_lock_intent(&ck->c.lock, NULL, NULL);
-+	six_lock_write(&ck->c.lock, NULL, NULL);
-+	return ck;
++	return container_of_or_null(rcu_pending_dequeue_from_all(&bc->pending[pcpu_readers]),
++				    struct bkey_cached, rcu);
 +}
 +
 +static struct bkey_cached *
@@ -35428,8 +35414,10 @@ index 000000000000..b39e651a4446
 +	key_u64s = roundup_pow_of_two(key_u64s);
 +
 +	struct bkey_cached *ck = errptr_try(bkey_cached_alloc(trans, ck_path, key_u64s));
-+
-+	if (unlikely(!ck)) {
++	if (likely(ck)) {
++		six_lock_intent(&ck->c.lock, NULL, NULL);
++		six_lock_write(&ck->c.lock, NULL, NULL);
++	} else {
 +		ck = bkey_cached_reuse(bc);
 +		if (unlikely(!ck)) {
 +			bch_err(c, "error allocating memory for key cache item, btree %s",
@@ -35966,6 +35954,7 @@ index 000000000000..b39e651a4446
 +					ck = container_of(pos, struct bkey_cached, hash);
 +					BUG_ON(!bkey_cached_evict(bc, ck));
 +					kfree(ck->k);
++					six_lock_exit(&ck->c.lock);
 +					kmem_cache_free(bch2_key_cache, ck);
 +				}
 +		}
@@ -37582,10 +37571,10 @@ index 000000000000..1cc52eab226a
 +#endif /* _BCACHEFS_BTREE_LOCKING_H */
 diff --git a/fs/bcachefs/btree/node_scan.c b/fs/bcachefs/btree/node_scan.c
 new file mode 100644
-index 000000000000..2a66f7ca34c5
+index 000000000000..0a6cede7a97b
 --- /dev/null
 +++ b/fs/bcachefs/btree/node_scan.c
-@@ -0,0 +1,594 @@
+@@ -0,0 +1,598 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include "bcachefs.h"
@@ -37623,8 +37612,12 @@ index 000000000000..2a66f7ca34c5
 +	if (n->range_updated)
 +		prt_str(out, " range updated");
 +
++	guard(printbuf_indent)(out);
++	guard(printbuf_atomic)(out);
++	guard(rcu)();
++
 +	for (unsigned i = 0; i < n->nr_ptrs; i++) {
-+		prt_char(out, ' ');
++		prt_newline(out);
 +		bch2_extent_ptr_to_text(out, c, n->ptrs + i);
 +	}
 +}
@@ -38236,10 +38229,10 @@ index 000000000000..a1fa9fd445d2
 +#endif /* _BCACHEFS_BTREE_NODE_SCAN_TYPES_H */
 diff --git a/fs/bcachefs/btree/read.c b/fs/bcachefs/btree/read.c
 new file mode 100644
-index 000000000000..617445816384
+index 000000000000..41899bec2340
 --- /dev/null
 +++ b/fs/bcachefs/btree/read.c
-@@ -0,0 +1,1383 @@
+@@ -0,0 +1,1384 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include "bcachefs.h"
@@ -39469,6 +39462,7 @@ index 000000000000..617445816384
 +
 +	struct work_struct	work;
 +	struct bio		bio;
++	struct bio_vec		inline_vecs[];
 +};
 +
 +static bool btree_node_scrub_check(struct bch_fs *c, struct btree_node *data, unsigned ptr_written,
@@ -39610,7 +39604,7 @@ index 000000000000..617445816384
 +
 +	INIT_WORK(&scrub->work, btree_node_scrub_work);
 +
-+	bio_init(&scrub->bio, ca->disk_sb.bdev, scrub->bio.bi_inline_vecs, vecs, REQ_OP_READ);
++	bio_init(&scrub->bio, ca->disk_sb.bdev, scrub->inline_vecs, vecs, REQ_OP_READ);
 +	bch2_bio_map(&scrub->bio, scrub->buf, c->opts.btree_node_size);
 +	scrub->bio.bi_iter.bi_sector	= pick.ptr.offset;
 +	scrub->bio.bi_end_io		= btree_node_scrub_endio;
@@ -42799,10 +42793,10 @@ index 000000000000..61aec7d6a9e5
 +#endif /* _BCACHEFS_BTREE_UPDATE_H */
 diff --git a/fs/bcachefs/btree/write.c b/fs/bcachefs/btree/write.c
 new file mode 100644
-index 000000000000..4684d4c946ad
+index 000000000000..5ad4d3c158ae
 --- /dev/null
 +++ b/fs/bcachefs/btree/write.c
-@@ -0,0 +1,724 @@
+@@ -0,0 +1,716 @@
 +// SPDX-License-Identifier: GPL-2.0
 +#include "bcachefs.h"
 +
@@ -42895,36 +42889,6 @@ index 000000000000..4684d4c946ad
 +	six_unlock_read(&b->c.lock);
 +}
 +
-+static int btree_node_write_update_key(struct btree_trans *trans,
-+				       struct btree_write_bio *wbio, struct btree *b)
-+{
-+	struct bch_fs *c = trans->c;
-+
-+	CLASS(btree_iter_uninit, iter)(trans);
-+	int ret = bch2_btree_node_get_iter(trans, &iter, b);
-+	if (ret)
-+		return ret == -BCH_ERR_btree_node_dying ? 0 : ret;
-+
-+	struct bkey_i *n = errptr_try(bch2_trans_kmalloc(trans, bkey_bytes(&b->key.k)));
-+	bkey_copy(n, &b->key);
-+
-+	bkey_i_to_btree_ptr_v2(n)->v.sectors_written =
-+		bkey_i_to_btree_ptr_v2(&wbio->key)->v.sectors_written;
-+
-+	bch2_bkey_drop_ptrs(bkey_i_to_s(n), p, entry,
-+		bch2_dev_list_has_dev(wbio->wbio.failed, p.ptr.dev));
-+
-+	if (!bch2_bkey_nr_ptrs(bkey_i_to_s_c(&wbio->key)))
-+		return bch_err_throw(c, btree_node_write_all_failed);
-+
-+	return bch2_btree_node_update_key(trans, &iter, b, n,
-+					  BCH_WATERMARK_interior_updates|
-+					  BCH_TRANS_COMMIT_journal_reclaim|
-+					  BCH_TRANS_COMMIT_no_enospc|
-+					  BCH_TRANS_COMMIT_no_check_rw,
-+					  !wbio->wbio.failed.nr);
-+}
-+
 +static void btree_node_write_work(struct work_struct *work)
 +{
 +	struct btree_write_bio *wbio =
@@ -42939,23 +42903,45 @@ index 000000000000..4684d4c946ad
 +		wbio->wbio.used_mempool,
 +		wbio->data);
 +
-+	if (!wbio->wbio.first_btree_write || wbio->wbio.failed.nr) {
-+		ret = bch2_trans_do(c, btree_node_write_update_key(trans, wbio, b));
-+		if (ret) {
-+			set_btree_node_noevict(b);
++	bch2_bkey_drop_ptrs(bkey_i_to_s(&wbio->key), p, entry,
++		bch2_dev_list_has_dev(wbio->wbio.failed, p.ptr.dev));
 +
-+			if (!bch2_err_matches(ret, EROFS)) {
-+				CLASS(printbuf, buf)();
-+				prt_printf(&buf, "writing btree node: %s\n  ", bch2_err_str(ret));
-+				bch2_btree_pos_to_text(&buf, c, b);
-+				bch2_fs_fatal_error(c, "%s", buf.buf);
-+			}
-+		}
++	if (!bch2_bkey_nr_ptrs(bkey_i_to_s_c(&wbio->key))) {
++		ret = bch_err_throw(c, btree_node_write_all_failed);
++		goto err;
 +	}
 +
++	if (wbio->wbio.first_btree_write) {
++		if (wbio->wbio.failed.nr) {
++
++		}
++	} else {
++		CLASS(btree_trans, trans)(c);
++		ret = lockrestart_do(trans,
++			bch2_btree_node_update_key_get_iter(trans, b, &wbio->key,
++					BCH_WATERMARK_interior_updates|
++					BCH_TRANS_COMMIT_journal_reclaim|
++					BCH_TRANS_COMMIT_no_enospc|
++					BCH_TRANS_COMMIT_no_check_rw,
++					!wbio->wbio.failed.nr));
++		if (ret)
++			goto err;
++	}
++out:
 +	async_object_list_del(c, btree_write_bio, wbio->list_idx);
 +	bio_put(&wbio->wbio.bio);
 +	btree_node_write_done(c, b, start_time);
++	return;
++err:
++	set_btree_node_noevict(b);
++
++	if (!bch2_err_matches(ret, EROFS)) {
++		CLASS(printbuf, buf)();
++		prt_printf(&buf, "writing btree node: %s\n  ", bch2_err_str(ret));
++		bch2_btree_pos_to_text(&buf, c, b);
++		bch2_fs_fatal_error(c, "%s", buf.buf);
++	}
++	goto out;
 +}
 +
 +static void btree_node_write_endio(struct bio *bio)
@@ -47062,10 +47048,10 @@ index 000000000000..f615910d6f98
 +#endif /* _BCACHEFS_MOVINGGC_H */
 diff --git a/fs/bcachefs/data/ec.c b/fs/bcachefs/data/ec.c
 new file mode 100644
-index 000000000000..f8dab103cf27
+index 000000000000..0d7a777e84e3
 --- /dev/null
 +++ b/fs/bcachefs/data/ec.c
-@@ -0,0 +1,2264 @@
+@@ -0,0 +1,2268 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +/* erasure coding */
@@ -47241,13 +47227,17 @@ index 000000000000..f8dab103cf27
 +		bch2_disk_path_to_text(out, c, s.disk_label - 1);
 +	}
 +
++	guard(printbuf_indent)(out);
++	guard(printbuf_atomic)(out);
++	guard(rcu)();
++
 +	for (unsigned i = 0; i < s.nr_blocks; i++) {
 +		const struct bch_extent_ptr *ptr = sp->ptrs + i;
 +
 +		if ((void *) ptr >= bkey_val_end(k))
 +			break;
 +
-+		prt_char(out, ' ');
++		prt_newline(out);
 +		bch2_extent_ptr_to_text(out, c, ptr);
 +
 +		if (s.csum_type < BCH_CSUM_NR &&
@@ -49935,7 +49925,7 @@ index 000000000000..2d956d971b11
 +#endif /* _BCACHEFS_EXTENT_UPDATE_H */
 diff --git a/fs/bcachefs/data/extents.c b/fs/bcachefs/data/extents.c
 new file mode 100644
-index 000000000000..fbb9f002b7d4
+index 000000000000..f005a40bd501
 --- /dev/null
 +++ b/fs/bcachefs/data/extents.c
 @@ -0,0 +1,1763 @@
@@ -51239,31 +51229,27 @@ index 000000000000..fbb9f002b7d4
 +
 +void bch2_extent_ptr_to_text(struct printbuf *out, struct bch_fs *c, const struct bch_extent_ptr *ptr)
 +{
-+	guard(printbuf_atomic)(out);
-+	guard(rcu)();
-+	struct bch_dev *ca = bch2_dev_rcu_noerror(c, ptr->dev);
++	struct bch_dev *ca = c ? bch2_dev_rcu_noerror(c, ptr->dev) : NULL;
 +	if (!ca) {
-+		prt_printf(out, "%u:%llu gen %u%s", ptr->dev,
-+			   (u64) ptr->offset, ptr->gen,
-+			   ptr->cached ? " cached" : "");
++		prt_printf(out, "%u:%llu gen %u", ptr->dev,
++			   (u64) ptr->offset, ptr->gen);
 +	} else {
 +		u32 offset;
 +		u64 b = sector_to_bucket_and_offset(ca, ptr->offset, &offset);
 +
-+		prt_printf(out, "%u:%llu:%u gen %u",
-+			   ptr->dev, b, offset, ptr->gen);
++		prt_printf(out, "%6s %u:%llu:%u gen %u",
++			   ca->name, ptr->dev, b, offset, ptr->gen);
 +		if (ca->mi.durability != 1)
 +			prt_printf(out, " d=%u", ca->mi.durability);
-+		if (ptr->cached)
-+			prt_str(out, " cached");
-+		if (ptr->unwritten)
-+			prt_str(out, " unwritten");
 +		int stale = dev_ptr_stale_rcu(ca, ptr);
-+		if (stale > 0)
-+			prt_printf(out, " stale");
-+		else if (stale)
-+			prt_printf(out, " invalid");
++		if (stale)
++			prt_printf(out, " stale=%i", stale);
 +	}
++
++	if (ptr->cached)
++		prt_str(out, " cached");
++	if (ptr->unwritten)
++		prt_str(out, " unwritten");
 +}
 +
 +void bch2_extent_crc_unpacked_to_text(struct printbuf *out, struct bch_extent_crc_unpacked *crc)
@@ -51295,6 +51281,8 @@ index 000000000000..fbb9f002b7d4
 +		prt_printf(out, "durability: %u ", bch2_bkey_durability_safe(c, k));
 +
 +	guard(printbuf_indent)(out);
++	guard(printbuf_atomic)(out);
++	guard(rcu)();
 +
 +	bkey_extent_entry_for_each(ptrs, entry) {
 +		prt_newline(out);
@@ -51348,6 +51336,9 @@ index 000000000000..fbb9f002b7d4
 +			       bool metadata)
 +{
 +	int ret = 0;
++
++	if (ptr->dev == BCH_SB_MEMBER_INVALID)
++		return 0;
 +
 +	struct bkey_ptrs_c ptrs = bch2_bkey_ptrs_c(k);
 +	bkey_for_each_ptr(ptrs, ptr2)
@@ -51701,7 +51692,6 @@ index 000000000000..fbb9f002b7d4
 +	memset(bkey_val_end(k), 0, val_u64s_delta * sizeof(u64));
 +	return -val_u64s_delta;
 +}
-+
 diff --git a/fs/bcachefs/data/extents.h b/fs/bcachefs/data/extents.h
 new file mode 100644
 index 000000000000..5be8b2c53e55
@@ -57407,10 +57397,10 @@ index 000000000000..b754353171f0
 +#endif /* _BCACHEFS_IO_READ_H */
 diff --git a/fs/bcachefs/data/rebalance.c b/fs/bcachefs/data/rebalance.c
 new file mode 100644
-index 000000000000..be86d17c9e92
+index 000000000000..cd7ee05bee81
 --- /dev/null
 +++ b/fs/bcachefs/data/rebalance.c
-@@ -0,0 +1,1028 @@
+@@ -0,0 +1,1030 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include "bcachefs.h"
@@ -58023,6 +58013,8 @@ index 000000000000..be86d17c9e92
 +	struct btree_trans *trans = ctxt->trans;
 +	struct bch_fs *c = trans->c;
 +	struct bch_fs_rebalance *r = &c->rebalance;
++
++	bch2_trans_begin(trans);
 +
 +	CLASS(btree_node_iter, iter)(trans, btree, start, 0, level,
 +				     BTREE_ITER_prefetch|
@@ -60753,7 +60745,7 @@ index 000000000000..d394af9545e4
 +#endif /* _BCACHEFS_DATA_UPDATE_H */
 diff --git a/fs/bcachefs/data/write.c b/fs/bcachefs/data/write.c
 new file mode 100644
-index 000000000000..6211815a00a8
+index 000000000000..1cbcbaec9095
 --- /dev/null
 +++ b/fs/bcachefs/data/write.c
 @@ -0,0 +1,1761 @@
@@ -61343,7 +61335,7 @@ index 000000000000..6211815a00a8
 +	unsigned dev;
 +	int ret = 0;
 +
-+	if (unlikely(op->flags & BCH_WRITE_io_error)) {
++	if (unlikely(op->io_error)) {
 +		ret = bch2_write_drop_io_error_ptrs(op);
 +		if (ret)
 +			goto err;
@@ -61502,7 +61494,7 @@ index 000000000000..6211815a00a8
 +					    "data write error: %s",
 +					    bch2_blk_status_to_str(bio->bi_status));
 +		set_bit(wbio->dev, op->failed.d);
-+		op->flags |= BCH_WRITE_io_error;
++		op->io_error = true;
 +	}
 +
 +	if (wbio->nocow) {
@@ -62031,7 +62023,7 @@ index 000000000000..6211815a00a8
 +
 +static void __bch2_nocow_write_done(struct bch_write_op *op)
 +{
-+	if (unlikely(op->flags & BCH_WRITE_io_error)) {
++	if (unlikely(op->io_error)) {
 +		op->error = bch_err_throw(op->c, data_write_io);
 +	} else if (unlikely(op->flags & BCH_WRITE_convert_unwritten))
 +		bch2_nocow_write_convert_unwritten(op);
@@ -62520,10 +62512,10 @@ index 000000000000..6211815a00a8
 +}
 diff --git a/fs/bcachefs/data/write.h b/fs/bcachefs/data/write.h
 new file mode 100644
-index 000000000000..e63b564ad8f2
+index 000000000000..647137fcd4f0
 --- /dev/null
 +++ b/fs/bcachefs/data/write.h
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,78 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef _BCACHEFS_IO_WRITE_H
 +#define _BCACHEFS_IO_WRITE_H
@@ -62562,6 +62554,7 @@ index 000000000000..e63b564ad8f2
 +	op->c			= c;
 +	op->end_io		= NULL;
 +	op->flags		= 0;
++	op->io_error		= false;
 +	op->written		= 0;
 +	op->error		= 0;
 +	op->csum_type		= bch2_data_checksum_type(c, opts);
@@ -62603,7 +62596,7 @@ index 000000000000..e63b564ad8f2
 +#endif /* _BCACHEFS_IO_WRITE_H */
 diff --git a/fs/bcachefs/data/write_types.h b/fs/bcachefs/data/write_types.h
 new file mode 100644
-index 000000000000..f3e412ea3b7e
+index 000000000000..77691e2d5f1c
 --- /dev/null
 +++ b/fs/bcachefs/data/write_types.h
 @@ -0,0 +1,129 @@
@@ -62635,7 +62628,6 @@ index 000000000000..f3e412ea3b7e
 +	x(move)				\
 +	x(in_worker)			\
 +	x(submitted)			\
-+	x(io_error)			\
 +	x(convert_unwritten)
 +
 +enum __bch_write_flags {
@@ -62687,6 +62679,7 @@ index 000000000000..f3e412ea3b7e
 +	unsigned		written; /* sectors */
 +	u16			flags;
 +	s16			error; /* dio write path expects it to hold -ERESTARTSYS... */
++	u8			io_error;
 +
 +	unsigned		compression_opt:8;
 +	unsigned		csum_type:4;
@@ -85573,7 +85566,7 @@ index 000000000000..c023f52fc2d6
 +#endif /* _BCACHEFS_RECOVERY_H */
 diff --git a/fs/bcachefs/journal/init.c b/fs/bcachefs/journal/init.c
 new file mode 100644
-index 000000000000..fb73ee000d95
+index 000000000000..1837fd810212
 --- /dev/null
 +++ b/fs/bcachefs/journal/init.c
 @@ -0,0 +1,617 @@
@@ -86112,14 +86105,14 @@ index 000000000000..fb73ee000d95
 +		 * performance can be sensitive to anything that affects journal
 +		 * pipelining.
 +		 */
-+		ja->bio[i] = kvzalloc(struct_size(ja->bio[i], bio.bi_inline_vecs,
-+				     nr_bvecs), GFP_KERNEL);
++		ja->bio[i] = kvzalloc(sizeof(struct bio) + sizeof(struct bio_vec) * nr_bvecs,
++				      GFP_KERNEL);
 +		if (!ja->bio[i])
 +			return bch_err_throw(c, ENOMEM_dev_journal_init);
 +
 +		ja->bio[i]->ca = ca;
 +		ja->bio[i]->buf_idx = i;
-+		bio_init(&ja->bio[i]->bio, NULL, ja->bio[i]->bio.bi_inline_vecs, nr_bvecs, 0);
++		bio_init(&ja->bio[i]->bio, NULL, bio_inline_vecs(&ja->bio[i]->bio), nr_bvecs, 0);
 +	}
 +
 +	ja->buckets = kcalloc(ja->nr, sizeof(u64), GFP_KERNEL);
@@ -87891,7 +87884,7 @@ index 000000000000..40c1eaa3aa13
 +#endif /* _BCACHEFS_JOURNAL_H */
 diff --git a/fs/bcachefs/journal/read.c b/fs/bcachefs/journal/read.c
 new file mode 100644
-index 000000000000..bdb91ba483f7
+index 000000000000..e516c3dbb7df
 --- /dev/null
 +++ b/fs/bcachefs/journal/read.c
 @@ -0,0 +1,1533 @@
@@ -88977,7 +88970,7 @@ index 000000000000..bdb91ba483f7
 +			bio = bio_kmalloc(nr_bvecs, GFP_KERNEL);
 +			if (!bio)
 +				return bch_err_throw(c, ENOMEM_journal_read_bucket);
-+			bio_init(bio, ca->disk_sb.bdev, bio->bi_inline_vecs, nr_bvecs, REQ_OP_READ);
++			bio_init(bio, ca->disk_sb.bdev, bio_inline_vecs(bio), nr_bvecs, REQ_OP_READ);
 +
 +			bio->bi_iter.bi_sector = offset;
 +			bch2_bio_map(bio, buf->data, sectors_read << 9);
@@ -95833,7 +95826,7 @@ index 000000000000..98281724ad77
 +#endif /* _BCACHEFS_SB_ERRORS_TYPES_H */
 diff --git a/fs/bcachefs/sb/io.c b/fs/bcachefs/sb/io.c
 new file mode 100644
-index 000000000000..94a09d19e838
+index 000000000000..1bf353088a60
 --- /dev/null
 +++ b/fs/bcachefs/sb/io.c
 @@ -0,0 +1,1531 @@
@@ -96074,7 +96067,7 @@ index 000000000000..94a09d19e838
 +		if (!bio)
 +			return -BCH_ERR_ENOMEM_sb_bio_realloc;
 +
-+		bio_init(bio, NULL, bio->bi_inline_vecs, nr_bvecs, 0);
++		bio_init(bio, NULL, bio_inline_vecs(bio), nr_bvecs, 0);
 +
 +		kfree(sb->bio);
 +		sb->bio = bio;
@@ -102168,15 +102161,16 @@ index 000000000000..d12c11dc6601
 +#endif /* _BCACHEFS_CLOCK_TYPES_H */
 diff --git a/fs/bcachefs/util/darray.c b/fs/bcachefs/util/darray.c
 new file mode 100644
-index 000000000000..6940037bd19e
+index 000000000000..7046711a5594
 --- /dev/null
 +++ b/fs/bcachefs/util/darray.c
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,54 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include <linux/log2.h>
 +#include <linux/rcupdate.h>
 +#include <linux/slab.h>
++#include <linux/version.h>
 +#include <linux/vmalloc.h>
 +#include "darray.h"
 +
@@ -102197,9 +102191,15 @@ index 000000000000..6940037bd19e
 +			return -ENOMEM;
 +
 +		void *old = d->data;
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(6,17,0)
 +		void *new = likely(bytes < INT_MAX)
 +			? kvmalloc_noprof(bytes, gfp)
 +			: vmalloc_noprof(bytes);
++#else
++		void *new = likely(bytes < INT_MAX)
++			? kvmalloc_node_align_noprof(bytes, 1, gfp, NUMA_NO_NODE)
++			: vmalloc_noprof(bytes);
++#endif
 +		if (!new)
 +			return -ENOMEM;
 +
@@ -108012,10 +108012,10 @@ index 000000000000..f4d484d44f63
 +#endif /* _BCACHEFS_THREAD_WITH_FILE_TYPES_H */
 diff --git a/fs/bcachefs/util/time_stats.c b/fs/bcachefs/util/time_stats.c
 new file mode 100644
-index 000000000000..7b5fa44807d7
+index 000000000000..579096aa61ba
 --- /dev/null
 +++ b/fs/bcachefs/util/time_stats.c
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,387 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include <linux/jiffies.h>
@@ -108184,6 +108184,204 @@ index 000000000000..7b5fa44807d7
 +	spin_unlock_irq(&stats->lock);
 +}
 +
++#include <linux/seq_buf.h>
++
++static void seq_buf_time_units_aligned(struct seq_buf *out, u64 ns)
++{
++	const struct time_unit *u = bch2_pick_time_units(ns);
++
++	seq_buf_printf(out, "%8llu %s", div64_u64(ns, u->nsecs), u->name);
++}
++
++static inline u64 time_stats_lifetime(const struct bch2_time_stats *stats)
++{
++	return local_clock() - stats->start_time;
++}
++
++void bch2_time_stats_to_seq_buf(struct seq_buf *out, struct bch2_time_stats *stats,
++		const char *epoch_name, unsigned int flags)
++{
++	struct quantiles *quantiles = time_stats_to_quantiles(stats);
++	s64 f_mean = 0, d_mean = 0;
++	u64 f_stddev = 0, d_stddev = 0;
++	u64 lifetime = time_stats_lifetime(stats);
++
++	if (stats->buffer) {
++		int cpu;
++
++		spin_lock_irq(&stats->lock);
++		for_each_possible_cpu(cpu)
++			__bch2_time_stats_clear_buffer(stats, per_cpu_ptr(stats->buffer, cpu));
++		spin_unlock_irq(&stats->lock);
++	}
++
++	if (stats->freq_stats.n) {
++		/* avoid divide by zero */
++		f_mean = mean_and_variance_get_mean(stats->freq_stats);
++		f_stddev = mean_and_variance_get_stddev(stats->freq_stats);
++		d_mean = mean_and_variance_get_mean(stats->duration_stats);
++		d_stddev = mean_and_variance_get_stddev(stats->duration_stats);
++	} else if (flags & TIME_STATS_PRINT_NO_ZEROES) {
++		/* unless we didn't want zeroes anyway */
++		return;
++	}
++
++	seq_buf_printf(out, "count: %llu\n", stats->duration_stats.n);
++	seq_buf_printf(out, "lifetime: ");
++	seq_buf_time_units_aligned(out, lifetime);
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "                       since %-12s recent\n", epoch_name);
++
++	seq_buf_printf(out, "duration of events\n");
++
++	seq_buf_printf(out, "  min:                     ");
++	seq_buf_time_units_aligned(out, stats->min_duration);
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "  max:                     ");
++	seq_buf_time_units_aligned(out, stats->max_duration);
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "  total:                   ");
++	seq_buf_time_units_aligned(out, stats->total_duration);
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "  mean:                    ");
++	seq_buf_time_units_aligned(out, d_mean);
++	seq_buf_time_units_aligned(out, mean_and_variance_weighted_get_mean(stats->duration_stats_weighted, TIME_STATS_MV_WEIGHT));
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "  stddev:                  ");
++	seq_buf_time_units_aligned(out, d_stddev);
++	seq_buf_time_units_aligned(out, mean_and_variance_weighted_get_stddev(stats->duration_stats_weighted, TIME_STATS_MV_WEIGHT));
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "time between events\n");
++
++	seq_buf_printf(out, "  min:                     ");
++	seq_buf_time_units_aligned(out, stats->min_freq);
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "  max:                     ");
++	seq_buf_time_units_aligned(out, stats->max_freq);
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "  mean:                    ");
++	seq_buf_time_units_aligned(out, f_mean);
++	seq_buf_time_units_aligned(out, mean_and_variance_weighted_get_mean(stats->freq_stats_weighted, TIME_STATS_MV_WEIGHT));
++	seq_buf_printf(out, "\n");
++
++	seq_buf_printf(out, "  stddev:                  ");
++	seq_buf_time_units_aligned(out, f_stddev);
++	seq_buf_time_units_aligned(out, mean_and_variance_weighted_get_stddev(stats->freq_stats_weighted, TIME_STATS_MV_WEIGHT));
++	seq_buf_printf(out, "\n");
++
++	if (quantiles) {
++		int i = eytzinger0_first(NR_QUANTILES);
++		const struct time_unit *u =
++			bch2_pick_time_units(quantiles->entries[i].m);
++		u64 last_q = 0;
++
++		seq_buf_printf(out, "quantiles (%s):\t", u->name);
++		eytzinger0_for_each(i, NR_QUANTILES) {
++			bool is_last = eytzinger0_next(i, NR_QUANTILES) == -1;
++
++			u64 q = max(quantiles->entries[i].m, last_q);
++			seq_buf_printf(out, "%llu ", div_u64(q, u->nsecs));
++			if (is_last)
++				seq_buf_printf(out, "\n");
++			last_q = q;
++		}
++	}
++}
++
++void bch2_time_stats_to_json(struct seq_buf *out, struct bch2_time_stats *stats,
++		const char *epoch_name, unsigned int flags)
++{
++	struct quantiles *quantiles = time_stats_to_quantiles(stats);
++	s64 f_mean = 0, d_mean = 0;
++	u64 f_stddev = 0, d_stddev = 0;
++
++	if (stats->buffer) {
++		int cpu;
++
++		spin_lock_irq(&stats->lock);
++		for_each_possible_cpu(cpu)
++			__bch2_time_stats_clear_buffer(stats, per_cpu_ptr(stats->buffer, cpu));
++		spin_unlock_irq(&stats->lock);
++	}
++
++	if (stats->freq_stats.n) {
++		/* avoid divide by zero */
++		f_mean = mean_and_variance_get_mean(stats->freq_stats);
++		f_stddev = mean_and_variance_get_stddev(stats->freq_stats);
++		d_mean = mean_and_variance_get_mean(stats->duration_stats);
++		d_stddev = mean_and_variance_get_stddev(stats->duration_stats);
++	} else if (flags & TIME_STATS_PRINT_NO_ZEROES) {
++		/* unless we didn't want zeroes anyway */
++		return;
++	}
++
++	seq_buf_printf(out, "{\n");
++	seq_buf_printf(out, "  \"epoch\":       \"%s\",\n", epoch_name);
++	seq_buf_printf(out, "  \"count\":       %llu,\n", stats->duration_stats.n);
++
++	seq_buf_printf(out, "  \"duration_ns\": {\n");
++	seq_buf_printf(out, "    \"min\":       %llu,\n", stats->min_duration);
++	seq_buf_printf(out, "    \"max\":       %llu,\n", stats->max_duration);
++	seq_buf_printf(out, "    \"total\":     %llu,\n", stats->total_duration);
++	seq_buf_printf(out, "    \"mean\":      %llu,\n", d_mean);
++	seq_buf_printf(out, "    \"stddev\":    %llu\n", d_stddev);
++	seq_buf_printf(out, "  },\n");
++
++	d_mean = mean_and_variance_weighted_get_mean(stats->duration_stats_weighted, TIME_STATS_MV_WEIGHT);
++	d_stddev = mean_and_variance_weighted_get_stddev(stats->duration_stats_weighted, TIME_STATS_MV_WEIGHT);
++
++	seq_buf_printf(out, "  \"duration_ewma_ns\": {\n");
++	seq_buf_printf(out, "    \"mean\":      %llu,\n", d_mean);
++	seq_buf_printf(out, "    \"stddev\":    %llu\n", d_stddev);
++	seq_buf_printf(out, "  },\n");
++
++	seq_buf_printf(out, "  \"between_ns\": {\n");
++	seq_buf_printf(out, "    \"min\":       %llu,\n", stats->min_freq);
++	seq_buf_printf(out, "    \"max\":       %llu,\n", stats->max_freq);
++	seq_buf_printf(out, "    \"mean\":      %llu,\n", f_mean);
++	seq_buf_printf(out, "    \"stddev\":    %llu\n", f_stddev);
++	seq_buf_printf(out, "  },\n");
++
++	f_mean = mean_and_variance_weighted_get_mean(stats->freq_stats_weighted, TIME_STATS_MV_WEIGHT);
++	f_stddev = mean_and_variance_weighted_get_stddev(stats->freq_stats_weighted, TIME_STATS_MV_WEIGHT);
++
++	seq_buf_printf(out, "  \"between_ewma_ns\": {\n");
++	seq_buf_printf(out, "    \"mean\":      %llu,\n", f_mean);
++	seq_buf_printf(out, "    \"stddev\":    %llu\n", f_stddev);
++
++	if (quantiles) {
++		u64 last_q = 0;
++
++		/* close between_ewma_ns but signal more items */
++		seq_buf_printf(out, "  },\n");
++
++		seq_buf_printf(out, "  \"quantiles_ns\": [\n");
++		eytzinger0_for_each(i, NR_QUANTILES) {
++			bool is_last = eytzinger0_next(i, NR_QUANTILES) == -1;
++
++			u64 q = max(quantiles->entries[i].m, last_q);
++			seq_buf_printf(out, "    %llu", q);
++			if (!is_last)
++				seq_buf_printf(out, ", ");
++			last_q = q;
++		}
++		seq_buf_printf(out, "  ]\n");
++	} else {
++		/* close between_ewma_ns without dumping further */
++		seq_buf_printf(out, "  }\n");
++	}
++
++	seq_buf_printf(out, "}\n");
++}
++
 +void bch2_time_stats_exit(struct bch2_time_stats *stats)
 +{
 +	if ((unsigned long) stats->buffer > TIME_STATS_NONPCPU)
@@ -108196,6 +108394,7 @@ index 000000000000..7b5fa44807d7
 +	memset(stats, 0, sizeof(*stats));
 +	stats->min_duration = U64_MAX;
 +	stats->min_freq = U64_MAX;
++	stats->start_time = local_clock();
 +	spin_lock_init(&stats->lock);
 +}
 +
@@ -108206,10 +108405,10 @@ index 000000000000..7b5fa44807d7
 +}
 diff --git a/fs/bcachefs/util/time_stats.h b/fs/bcachefs/util/time_stats.h
 new file mode 100644
-index 000000000000..eddb0985bab4
+index 000000000000..7c70696731f2
 --- /dev/null
 +++ b/fs/bcachefs/util/time_stats.h
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,170 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * bch2_time_stats - collect statistics on events that have a duration, with nicely
@@ -108291,6 +108490,7 @@ index 000000000000..eddb0985bab4
 +	u64             min_freq;
 +	u64		last_event;
 +	u64		last_event_start;
++	u64		start_time;
 +
 +	struct mean_and_variance	  duration_stats;
 +	struct mean_and_variance	  freq_stats;
@@ -108355,6 +108555,14 @@ index 000000000000..eddb0985bab4
 +}
 +
 +void bch2_time_stats_reset(struct bch2_time_stats *);
++
++#define TIME_STATS_PRINT_NO_ZEROES	(1U << 0)	/* print nothing if zero count */
++struct seq_buf;
++void bch2_time_stats_to_seq_buf(struct seq_buf *, struct bch2_time_stats *,
++				const char *epoch_name, unsigned int flags);
++void bch2_time_stats_to_json(struct seq_buf *, struct bch2_time_stats *,
++			     const char *epoch_name, unsigned int flags);
++
 +void bch2_time_stats_exit(struct bch2_time_stats *);
 +void bch2_time_stats_init(struct bch2_time_stats *);
 +void bch2_time_stats_init_no_pcpu(struct bch2_time_stats *);
@@ -109474,10 +109682,10 @@ index 000000000000..9ea6db28f660
 +}
 diff --git a/fs/bcachefs/util/util.h b/fs/bcachefs/util/util.h
 new file mode 100644
-index 000000000000..b74d5efff785
+index 000000000000..354c2cf21feb
 --- /dev/null
 +++ b/fs/bcachefs/util/util.h
-@@ -0,0 +1,804 @@
+@@ -0,0 +1,818 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef _BCACHEFS_UTIL_H
 +#define _BCACHEFS_UTIL_H
@@ -109496,6 +109704,7 @@ index 000000000000..b74d5efff785
 +#include <linux/ratelimit.h>
 +#include <linux/slab.h>
 +#include <linux/sort.h>
++#include <linux/version.h>
 +#include <linux/vmalloc.h>
 +#include <linux/workqueue.h>
 +
@@ -109528,6 +109737,13 @@ index 000000000000..b74d5efff785
 +	(__builtin_types_compatible_p(typeof(_val), _type) ||		\
 +	 __builtin_types_compatible_p(typeof(_val), const _type))
 +
++#if defined(_KERNEL__) && LINUX_VERSION_CODE <= KERNEL_VERSION(6,17,0)
++static inline struct bio_vec *bio_inline_vecs(struct bio *bio)
++{
++	return (struct bio_vec *)(bio + 1);
++}
++#endif
++
 +/* Userspace doesn't align allocations as nicely as the kernel allocators: */
 +static inline size_t buf_pages(void *p, size_t len)
 +{
@@ -109538,9 +109754,15 @@ index 000000000000..b74d5efff785
 +
 +static inline void *bch2_kvmalloc_noprof(size_t n, gfp_t flags)
 +{
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(6,17,0)
 +	void *p = unlikely(n >= INT_MAX)
 +		? vmalloc_noprof(n)
 +		: kvmalloc_noprof(n, flags & ~__GFP_ZERO);
++#else
++	void *p = unlikely(n >= INT_MAX)
++		? vmalloc_noprof(n)
++		: kvmalloc_node_align_noprof(n, 1, flags & ~__GFP_ZERO, NUMA_NO_NODE);
++#endif
 +	if (p && (flags & __GFP_ZERO))
 +		memset(p, 0, n);
 +	return p;
@@ -117967,10 +118189,10 @@ index 000000000000..6dbed2d60866
 +#endif /* _BCACHEFS_FS_IO_H */
 diff --git a/fs/bcachefs/vfs/ioctl.c b/fs/bcachefs/vfs/ioctl.c
 new file mode 100644
-index 000000000000..bc9efae27ac6
+index 000000000000..397d84d0db33
 --- /dev/null
 +++ b/fs/bcachefs/vfs/ioctl.c
-@@ -0,0 +1,515 @@
+@@ -0,0 +1,522 @@
 +// SPDX-License-Identifier: GPL-2.0
 +#ifndef NO_BCACHEFS_FS
 +
@@ -117990,6 +118212,7 @@ index 000000000000..bc9efae27ac6
 +#include <linux/fsnotify.h>
 +#include <linux/mount.h>
 +#include <linux/namei.h>
++#include <linux/version.h>
 +#include <linux/security.h>
 +#include <linux/writeback.h>
 +
@@ -117997,6 +118220,12 @@ index 000000000000..bc9efae27ac6
 +#define FSOP_GOING_FLAGS_DEFAULT	0x0	/* going down */
 +#define FSOP_GOING_FLAGS_LOGFLUSH	0x1	/* flush log but not data */
 +#define FSOP_GOING_FLAGS_NOLOGFLUSH	0x2	/* don't flush log nor data */
++
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(6,17,0)
++#define start_creating_user_path	user_path_create
++#define end_creating_path		done_path_create
++#define start_removing_user_path_at	user_path_locked_at
++#endif
 +
 +static int bch2_reinherit_attrs_fn(struct btree_trans *trans,
 +				   struct bch_inode_info *inode,
@@ -118230,7 +118459,7 @@ index 000000000000..bc9efae27ac6
 +		snapshot_src = inode_inum(to_bch_ei(src_path.dentry->d_inode));
 +	}
 +
-+	dst_dentry = user_path_create(arg.dirfd,
++	dst_dentry = start_creating_user_path(arg.dirfd,
 +			(const char __user *)(unsigned long)arg.dst_ptr,
 +			&dst_path, lookup_flags);
 +	error = PTR_ERR_OR_ZERO(dst_dentry);
@@ -118289,7 +118518,7 @@ index 000000000000..bc9efae27ac6
 +	d_instantiate(dst_dentry, &inode->v);
 +	fsnotify_mkdir(dir, dst_dentry);
 +err3:
-+	done_path_create(&dst_path, dst_dentry);
++	end_creating_path(&dst_path, dst_dentry);
 +err2:
 +	if (arg.src_ptr)
 +		path_put(&src_path);
@@ -118336,7 +118565,7 @@ index 000000000000..bc9efae27ac6
 +	if (arg.flags)
 +		return -EINVAL;
 +
-+	victim = user_path_locked_at(arg.dirfd, name, &path);
++	victim = start_removing_user_path_at(arg.dirfd, name, &path);
 +	if (IS_ERR(victim))
 +		return PTR_ERR(victim);
 +
@@ -119537,546 +119766,3 @@ index e3523ab2e587..334654f9584b 100644
  obj-$(CONFIG_CEPH_FS)		+= ceph/
  obj-$(CONFIG_PSTORE)		+= pstore/
  obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
-From c0347231a45001de6252fc21ff2931d2b9eee39c Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 14 Oct 2025 20:56:19 +0200
-Subject: [PATCH 1/8] bcachefs: kvmalloc_noprof changes for 6.18
-
----
- fs/bcachefs/util/darray.c | 5 +++++
- fs/bcachefs/util/util.h   | 5 +++++
- 2 files changed, 10 insertions(+)
-
-diff --git a/fs/bcachefs/util/darray.c b/fs/bcachefs/util/darray.c
-index 6940037bd19e..2a04077975fa 100644
---- a/fs/bcachefs/util/darray.c
-+++ b/fs/bcachefs/util/darray.c
-@@ -3,6 +3,7 @@
- #include <linux/log2.h>
- #include <linux/rcupdate.h>
- #include <linux/slab.h>
-+#include <linux/version.h>
- #include <linux/vmalloc.h>
- #include "darray.h"
- 
-@@ -24,7 +25,11 @@ int __bch2_darray_resize_noprof(darray_char *d, size_t element_size, size_t new_
- 
- 		void *old = d->data;
- 		void *new = likely(bytes < INT_MAX)
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 			? kvmalloc_noprof(bytes, gfp)
-+# else
-+			? kvmalloc_node_align_noprof(bytes, 1, gfp, NUMA_NO_NODE)
-+# endif
- 			: vmalloc_noprof(bytes);
- 		if (!new)
- 			return -ENOMEM;
-diff --git a/fs/bcachefs/util/util.h b/fs/bcachefs/util/util.h
-index b74d5efff785..d24f62f46995 100644
---- a/fs/bcachefs/util/util.h
-+++ b/fs/bcachefs/util/util.h
-@@ -16,6 +16,7 @@
- #include <linux/ratelimit.h>
- #include <linux/slab.h>
- #include <linux/sort.h>
-+#include <linux/version.h>
- #include <linux/vmalloc.h>
- #include <linux/workqueue.h>
- 
-@@ -60,7 +61,11 @@ static inline void *bch2_kvmalloc_noprof(size_t n, gfp_t flags)
- {
- 	void *p = unlikely(n >= INT_MAX)
- 		? vmalloc_noprof(n)
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 		: kvmalloc_noprof(n, flags & ~__GFP_ZERO);
-+# else
-+		: kvmalloc_node_align_noprof(n, 1, flags & ~__GFP_ZERO, NUMA_NO_NODE);
-+# endif
- 	if (p && (flags & __GFP_ZERO))
- 		memset(p, 0, n);
- 	return p;
--- 
-2.51.0
-
-From c700374ad03fc08395302d070521ee50455c21be Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 14 Oct 2025 21:14:46 +0200
-Subject: [PATCH 2/8] bcachefs: bio_init changes for 6.18
-
----
- fs/bcachefs/btree/read.c   | 5 +++++
- fs/bcachefs/data/update.c  | 6 ++++++
- fs/bcachefs/journal/init.c | 6 ++++++
- fs/bcachefs/journal/read.c | 5 +++++
- fs/bcachefs/sb/io.c        | 5 +++++
- 5 files changed, 27 insertions(+)
-
-diff --git a/fs/bcachefs/btree/read.c b/fs/bcachefs/btree/read.c
-index 617445816384..fabd466a1590 100644
---- a/fs/bcachefs/btree/read.c
-+++ b/fs/bcachefs/btree/read.c
-@@ -30,6 +30,7 @@
- 
- #include <linux/moduleparam.h>
- #include <linux/sched/mm.h>
-+#include <linux/version.h>
- 
- static __maybe_unused unsigned bch2_btree_read_corrupt_ratio;
- static __maybe_unused int bch2_btree_read_corrupt_device;
-@@ -1368,7 +1369,11 @@ int bch2_btree_node_scrub(struct btree_trans *trans,
- 
- 	INIT_WORK(&scrub->work, btree_node_scrub_work);
- 
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	bio_init(&scrub->bio, ca->disk_sb.bdev, scrub->bio.bi_inline_vecs, vecs, REQ_OP_READ);
-+# else
-+	bio_init_inline(&scrub->bio, ca->disk_sb.bdev, vecs, REQ_OP_READ);
-+# endif
- 	bch2_bio_map(&scrub->bio, scrub->buf, c->opts.btree_node_size);
- 	scrub->bio.bi_iter.bi_sector	= pick.ptr.offset;
- 	scrub->bio.bi_end_io		= btree_node_scrub_endio;
-diff --git a/fs/bcachefs/data/update.c b/fs/bcachefs/data/update.c
-index 16f2cb55c21f..415d9d925824 100644
---- a/fs/bcachefs/data/update.c
-+++ b/fs/bcachefs/data/update.c
-@@ -28,6 +28,7 @@
- #include "snapshots/subvolume.h"
- 
- #include <linux/ioprio.h>
-+#include <linux/version.h>
- 
- static const char * const bch2_data_update_type_strs[] = {
- #define x(t, n, ...) [n] = #t,
-@@ -710,8 +711,13 @@ static int __bch2_data_update_bios_init(struct data_update *m, struct bch_fs *c,
- 	if (!m->bvecs)
- 		return -ENOMEM;
- 
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	bio_init(&m->rbio.bio,		NULL, m->bvecs, nr_vecs, REQ_OP_READ);
- 	bio_init(&m->op.wbio.bio,	NULL, m->bvecs, nr_vecs, 0);
-+# else
-+	bio_init_inline(&m->rbio.bio,		NULL, nr_vecs, REQ_OP_READ);
-+	bio_init_inline(&m->op.wbio.bio,	NULL, nr_vecs, 0);
-+# endif
- 
- 	if (bch2_bio_alloc_pages(&m->op.wbio.bio, buf_bytes, GFP_KERNEL)) {
- 		kfree(m->bvecs);
-diff --git a/fs/bcachefs/journal/init.c b/fs/bcachefs/journal/init.c
-index fb73ee000d95..f809459ec8e6 100644
---- a/fs/bcachefs/journal/init.c
-+++ b/fs/bcachefs/journal/init.c
-@@ -11,6 +11,8 @@
- #include "alloc/foreground.h"
- #include "btree/update.h"
- 
-+#include <linux/version.h>
-+
- /* allocate journal on a device: */
- 
- static int bch2_set_nr_journal_buckets_iter(struct bch_dev *ca, unsigned nr,
-@@ -540,7 +542,11 @@ int bch2_dev_journal_init(struct bch_dev *ca, struct bch_sb *sb)
- 
- 		ja->bio[i]->ca = ca;
- 		ja->bio[i]->buf_idx = i;
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 		bio_init(&ja->bio[i]->bio, NULL, ja->bio[i]->bio.bi_inline_vecs, nr_bvecs, 0);
-+# else
-+		bio_init_inline(&ja->bio[i]->bio, NULL, nr_bvecs, 0);
-+# endif
- 	}
- 
- 	ja->buckets = kcalloc(ja->nr, sizeof(u64), GFP_KERNEL);
-diff --git a/fs/bcachefs/journal/read.c b/fs/bcachefs/journal/read.c
-index bdb91ba483f7..7ecbc837de6e 100644
---- a/fs/bcachefs/journal/read.c
-+++ b/fs/bcachefs/journal/read.c
-@@ -19,6 +19,7 @@
- 
- #include <linux/string_choices.h>
- #include <linux/sched/sysctl.h>
-+#include <linux/version.h>
- 
- void bch2_journal_pos_from_member_info_set(struct bch_fs *c)
- {
-@@ -1080,7 +1081,11 @@ static int journal_read_bucket(struct bch_dev *ca,
- 			bio = bio_kmalloc(nr_bvecs, GFP_KERNEL);
- 			if (!bio)
- 				return bch_err_throw(c, ENOMEM_journal_read_bucket);
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 			bio_init(bio, ca->disk_sb.bdev, bio->bi_inline_vecs, nr_bvecs, REQ_OP_READ);
-+# else
-+			bio_init_inline(bio, ca->disk_sb.bdev, nr_bvecs, REQ_OP_READ);
-+# endif
- 
- 			bio->bi_iter.bi_sector = offset;
- 			bch2_bio_map(bio, buf->data, sectors_read << 9);
-diff --git a/fs/bcachefs/sb/io.c b/fs/bcachefs/sb/io.c
-index 94a09d19e838..540e3df274eb 100644
---- a/fs/bcachefs/sb/io.c
-+++ b/fs/bcachefs/sb/io.c
-@@ -30,6 +30,7 @@
- #include <linux/backing-dev.h>
- #include <linux/sort.h>
- #include <linux/string_choices.h>
-+#include <linux/version.h>
- 
- struct bch2_metadata_version {
- 	u16		version;
-@@ -235,7 +236,11 @@ int bch2_sb_realloc(struct bch_sb_handle *sb, unsigned u64s)
- 		if (!bio)
- 			return -BCH_ERR_ENOMEM_sb_bio_realloc;
- 
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 		bio_init(bio, NULL, bio->bi_inline_vecs, nr_bvecs, 0);
-+# else
-+		bio_init_inline(bio, NULL, nr_bvecs, 0);
-+# endif
- 
- 		kfree(sb->bio);
- 		sb->bio = bio;
--- 
-2.51.0
-
-From fa4ae07bdc76e7d0435f23790a804f62e31480f0 Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 14 Oct 2025 21:17:15 +0200
-Subject: [PATCH 3/8] bcachefs: bio_iov_iter_get_pages changes for 6.18
-
----
- fs/bcachefs/vfs/direct.c | 9 +++++++++
- 1 file changed, 9 insertions(+)
-
-diff --git a/fs/bcachefs/vfs/direct.c b/fs/bcachefs/vfs/direct.c
-index 648325492694..4ecd930c5281 100644
---- a/fs/bcachefs/vfs/direct.c
-+++ b/fs/bcachefs/vfs/direct.c
-@@ -19,6 +19,7 @@
- #include <linux/pagemap.h>
- #include <linux/prefetch.h>
- #include <linux/task_io_accounting_ops.h>
-+#include <linux/version.h>
- 
- /* O_DIRECT reads */
- 
-@@ -148,7 +149,11 @@ static int bch2_direct_IO_read(struct kiocb *req, struct iov_iter *iter)
- 		bio->bi_iter.bi_sector	= offset >> 9;
- 		bio->bi_private		= dio;
- 
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 		ret = bio_iov_iter_get_pages(bio, iter);
-+# else
-+		ret = bio_iov_iter_get_pages(bio, iter, 0);
-+# endif
- 		if (ret < 0) {
- 			/* XXX: fault inject this path */
- 			bio->bi_status = BLK_STS_RESOURCE;
-@@ -461,7 +466,11 @@ static __always_inline long bch2_dio_write_loop(struct dio_write *dio)
- 		EBUG_ON(current->faults_disabled_mapping);
- 		current->faults_disabled_mapping = mapping;
- 
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 		ret = bio_iov_iter_get_pages(bio, &dio->iter);
-+# else
-+		ret = bio_iov_iter_get_pages(bio, &dio->iter, 0);
-+# endif
- 
- 		dropped_locks = fdm_dropped_locks();
- 
--- 
-2.51.0
-
-From dfb4196f9585779e889c8eab582e609292055669 Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 14 Oct 2025 21:22:19 +0200
-Subject: [PATCH 4/8] bcachefs: namei changes for 6.18
-
----
- fs/bcachefs/vfs/ioctl.c | 17 +++++++++++++++++
- 1 file changed, 17 insertions(+)
-
-diff --git a/fs/bcachefs/vfs/ioctl.c b/fs/bcachefs/vfs/ioctl.c
-index bc9efae27ac6..a9c81fc3a10b 100644
---- a/fs/bcachefs/vfs/ioctl.c
-+++ b/fs/bcachefs/vfs/ioctl.c
-@@ -18,6 +18,7 @@
- #include <linux/mount.h>
- #include <linux/namei.h>
- #include <linux/security.h>
-+#include <linux/version.h>
- #include <linux/writeback.h>
- 
- #define FS_IOC_GOINGDOWN	     _IOR('X', 125, __u32)
-@@ -257,7 +258,11 @@ static long __bch2_ioctl_subvolume_create(struct bch_fs *c, struct file *filp,
- 		snapshot_src = inode_inum(to_bch_ei(src_path.dentry->d_inode));
- 	}
- 
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	dst_dentry = user_path_create(arg.dirfd,
-+# else
-+	dst_dentry = start_creating_user_path(arg.dirfd,
-+# endif
- 			(const char __user *)(unsigned long)arg.dst_ptr,
- 			&dst_path, lookup_flags);
- 	error = PTR_ERR_OR_ZERO(dst_dentry);
-@@ -316,7 +321,11 @@ static long __bch2_ioctl_subvolume_create(struct bch_fs *c, struct file *filp,
- 	d_instantiate(dst_dentry, &inode->v);
- 	fsnotify_mkdir(dir, dst_dentry);
- err3:
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	done_path_create(&dst_path, dst_dentry);
-+# else
-+	end_creating_path(&dst_path, dst_dentry);
-+# endif
- err2:
- 	if (arg.src_ptr)
- 		path_put(&src_path);
-@@ -363,7 +372,11 @@ static long __bch2_ioctl_subvolume_destroy(struct bch_fs *c, struct file *filp,
- 	if (arg.flags)
- 		return -EINVAL;
- 
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	victim = user_path_locked_at(arg.dirfd, name, &path);
-+# else
-+	victim = start_removing_user_path_at(arg.dirfd, name, &path);
-+# endif
- 	if (IS_ERR(victim))
- 		return PTR_ERR(victim);
- 
-@@ -380,9 +393,13 @@ static long __bch2_ioctl_subvolume_destroy(struct bch_fs *c, struct file *filp,
- 		d_invalidate(victim);
- 	}
- err:
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	inode_unlock(dir);
- 	dput(victim);
- 	path_put(&path);
-+# else
-+	end_removing_path(&path, victim);
-+# endif
- 	return ret;
- }
- 
--- 
-2.51.0
-
-From ec986ee97978b857628b34ae9d53efe1b89523fe Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 14 Oct 2025 21:29:53 +0200
-Subject: [PATCH 5/8] bcachefs: system_unbound_wq->system_dfl_wq on 6.18
-
-Based on https://github.com/torvalds/linux/commit/7a4f92d39f66f890cbb157dd4d7daf6a9298324a
----
- fs/bcachefs/btree/write_buffer.c |  5 +++++
- fs/bcachefs/data/read.c          | 17 +++++++++++++++++
- fs/bcachefs/journal/read.c       |  4 ++++
- 3 files changed, 26 insertions(+)
-
-diff --git a/fs/bcachefs/btree/write_buffer.c b/fs/bcachefs/btree/write_buffer.c
-index 25c97d3a4f58..6c9fda674638 100644
---- a/fs/bcachefs/btree/write_buffer.c
-+++ b/fs/bcachefs/btree/write_buffer.c
-@@ -22,6 +22,7 @@
- 
- #include <linux/prefetch.h>
- #include <linux/sort.h>
-+#include <linux/version.h>
- 
- static int bch2_btree_write_buffer_journal_flush(struct journal *,
- 				struct journal_entry_pin *, u64);
-@@ -824,7 +825,11 @@ int bch2_journal_keys_to_write_buffer_end(struct bch_fs *c, struct journal_keys_
- 
- 	if (bch2_btree_write_buffer_should_flush(c) &&
- 	    __enumerated_ref_tryget(&c->writes, BCH_WRITE_REF_btree_write_buffer) &&
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	    !queue_work(system_unbound_wq, &c->btree_write_buffer.flush_work))
-+# else
-+	    !queue_work(system_dfl_wq, &c->btree_write_buffer.flush_work))
-+# endif
- 		enumerated_ref_put(&c->writes, BCH_WRITE_REF_btree_write_buffer);
- 
- 	if (dst->wb == &wb->flushing)
-diff --git a/fs/bcachefs/data/read.c b/fs/bcachefs/data/read.c
-index 84b95df2890e..239e0a33e974 100644
---- a/fs/bcachefs/data/read.c
-+++ b/fs/bcachefs/data/read.c
-@@ -36,6 +36,7 @@
- #include <linux/moduleparam.h>
- #include <linux/random.h>
- #include <linux/sched/mm.h>
-+#include <linux/version.h>
- 
- static unsigned __maybe_unused bch2_read_corrupt_ratio;
- static int __maybe_unused bch2_read_corrupt_device;
-@@ -729,7 +730,11 @@ static void bch2_rbio_error(struct bch_read_bio *rbio,
- 
- 	if (bch2_err_matches(ret, BCH_ERR_data_read_retry)) {
- 		bch2_rbio_punt(rbio, bch2_rbio_retry,
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 			       RBIO_CONTEXT_UNBOUND, system_unbound_wq);
-+# else
-+			       RBIO_CONTEXT_UNBOUND, system_dfl_wq);
-+# endif
- 	} else {
- 		rbio = bch2_rbio_free(rbio);
- 
-@@ -963,10 +968,18 @@ static void __bch2_read_endio(struct work_struct *work)
- 	bch2_rbio_error(rbio, -BCH_ERR_data_read_retry_csum_err, BLK_STS_IOERR);
- 	goto out;
- decompression_err:
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	bch2_rbio_punt(rbio, bch2_read_decompress_err, RBIO_CONTEXT_UNBOUND, system_unbound_wq);
-+# else
-+	bch2_rbio_punt(rbio, bch2_read_decompress_err, RBIO_CONTEXT_UNBOUND, system_dfl_wq);
-+# endif
- 	goto out;
- decrypt_err:
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 	bch2_rbio_punt(rbio, bch2_read_decrypt_err, RBIO_CONTEXT_UNBOUND, system_unbound_wq);
-+# else
-+	bch2_rbio_punt(rbio, bch2_read_decrypt_err, RBIO_CONTEXT_UNBOUND, system_dfl_wq);
-+# endif
- 	goto out;
- }
- 
-@@ -1005,7 +1018,11 @@ static void bch2_read_endio(struct bio *bio)
- 	    rbio->promote ||
- 	    crc_is_compressed(rbio->pick.crc) ||
- 	    bch2_csum_type_is_encryption(rbio->pick.crc.csum_type))
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 		context = RBIO_CONTEXT_UNBOUND,	wq = system_unbound_wq;
-+# else
-+		context = RBIO_CONTEXT_UNBOUND,	wq = system_dfl_wq;
-+# endif
- 	else if (rbio->pick.crc.csum_type)
- 		context = RBIO_CONTEXT_HIGHPRI,	wq = system_highpri_wq;
- 
-diff --git a/fs/bcachefs/journal/read.c b/fs/bcachefs/journal/read.c
-index 7ecbc837de6e..ce9cce626ce0 100644
---- a/fs/bcachefs/journal/read.c
-+++ b/fs/bcachefs/journal/read.c
-@@ -1379,7 +1379,11 @@ int bch2_journal_read(struct bch_fs *c,
- 					  BCH_DEV_READ_REF_journal_read))
- 			closure_call(&ca->journal.read,
- 				     bch2_journal_read_device,
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 				     system_unbound_wq,
-+# else
-+				     system_dfl_wq,
-+# endif
- 				     &jlist.cl);
- 		else
- 			degraded = true;
--- 
-2.51.0
-
-From 35b885bd3f197aa0e9a5c724cc986ee8f05a1e3a Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 14 Oct 2025 21:36:29 +0200
-Subject: [PATCH 6/8] bcachefs: WQ_PERCPU added to alloc_workqueue users
-
-Based on https://github.com/torvalds/linux/commit/69635d7f4b344e6f5344bba3c3de92e4fb8b0d2a
----
- fs/bcachefs/init/fs.c | 17 +++++++++++++++++
- 1 file changed, 17 insertions(+)
-
-diff --git a/fs/bcachefs/init/fs.c b/fs/bcachefs/init/fs.c
-index 829b71a48454..4acd2bb824fe 100644
---- a/fs/bcachefs/init/fs.c
-+++ b/fs/bcachefs/init/fs.c
-@@ -84,6 +84,7 @@
- #include <linux/percpu.h>
- #include <linux/random.h>
- #include <linux/sysfs.h>
-+#include <linux/version.h>
- 
- MODULE_LICENSE("GPL");
- MODULE_AUTHOR("Kent Overstreet <kent.overstreet@gmail.com>");
-@@ -791,13 +792,29 @@ int bch2_fs_init_rw(struct bch_fs *c)
- 	if (!(c->btree_update_wq = alloc_workqueue("bcachefs",
- 				WQ_HIGHPRI|WQ_FREEZABLE|WQ_MEM_RECLAIM|WQ_UNBOUND, 512)) ||
- 	    !(c->btree_write_complete_wq = alloc_workqueue("bcachefs_btree_write_complete",
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 				WQ_HIGHPRI|WQ_FREEZABLE|WQ_MEM_RECLAIM, 1)) ||
-+# else
-+				WQ_HIGHPRI|WQ_FREEZABLE|WQ_MEM_RECLAIM|WQ_PERCPU, 1)) ||
-+# endif
- 	    !(c->copygc_wq = alloc_workqueue("bcachefs_copygc",
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 				WQ_HIGHPRI|WQ_FREEZABLE|WQ_MEM_RECLAIM|WQ_CPU_INTENSIVE, 1)) ||
-+# else
-+				WQ_HIGHPRI|WQ_FREEZABLE|WQ_MEM_RECLAIM|WQ_CPU_INTENSIVE|WQ_PERCPU, 1)) ||
-+# endif
- 	    !(c->btree_write_submit_wq = alloc_workqueue("bcachefs_btree_write_sumit",
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 				WQ_HIGHPRI|WQ_FREEZABLE|WQ_MEM_RECLAIM, 1)) ||
-+# else
-+				WQ_HIGHPRI|WQ_FREEZABLE|WQ_MEM_RECLAIM|WQ_PERCPU, 1)) ||
-+# endif
- 	    !(c->write_ref_wq = alloc_workqueue("bcachefs_write_ref",
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 				WQ_FREEZABLE, 0)))
-+# else
-+				WQ_FREEZABLE|WQ_PERCPU, 0)))
-+# endif
- 		return bch_err_throw(c, ENOMEM_fs_other_alloc);
- 
- 	int ret = bch2_fs_btree_interior_update_init(c) ?:
--- 
-2.51.0
-
-From b0932abb6dec63dc4ec293eced52c3f55684029c Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 14 Oct 2025 21:51:55 +0200
-Subject: [PATCH 7/8] bcachefs: bi_inline_vecs removal in 6.18
-
-Based on https://github.com/torvalds/linux/commit/d86eaa0f3c56da286853b698b45c8ce404291082
----
- fs/bcachefs/journal/init.c | 5 +++++
- 1 file changed, 5 insertions(+)
-
-diff --git a/fs/bcachefs/journal/init.c b/fs/bcachefs/journal/init.c
-index f809459ec8e6..5c815745851c 100644
---- a/fs/bcachefs/journal/init.c
-+++ b/fs/bcachefs/journal/init.c
-@@ -535,8 +535,13 @@ int bch2_dev_journal_init(struct bch_dev *ca, struct bch_sb *sb)
- 		 * performance can be sensitive to anything that affects journal
- 		 * pipelining.
- 		 */
-+# if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,0)
- 		ja->bio[i] = kvzalloc(struct_size(ja->bio[i], bio.bi_inline_vecs,
- 				     nr_bvecs), GFP_KERNEL);
-+# else
-+		ja->bio[i] = kvzalloc(sizeof(*ja->bio[i]) +
-+				     sizeof(struct bio_vec) * nr_bvecs, GFP_KERNEL);
-+# endif
- 		if (!ja->bio[i])
- 			return bch_err_throw(c, ENOMEM_dev_journal_init);
- 
--- 
-2.51.0
-
-From 51fab2f32be89abfb0282c1b79390a9b1b37ca69 Mon Sep 17 00:00:00 2001
-From: Xarblu <xarblu@protonmail.com>
-Date: Wed, 15 Oct 2025 09:27:05 +0200
-Subject: [PATCH 8/8] block: re-export bio_iov_iter_get_pages
-
-Needed by bcachefs
----
- block/bio.c | 1 +
- 1 file changed, 1 insertion(+)
-
-diff --git a/block/bio.c b/block/bio.c
-index b3a79285c278..5d6df3e859a9 100644
---- a/block/bio.c
-+++ b/block/bio.c
-@@ -1360,6 +1360,7 @@ int bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter,
- 		return bio_iov_iter_align_down(bio, iter, len_align_mask);
- 	return ret;
- }
-+EXPORT_SYMBOL_GPL(bio_iov_iter_get_pages);
- 
- static void submit_bio_wait_endio(struct bio *bio)
- {
--- 
-2.51.0
-

@@ -224,8 +224,8 @@ function glue_patch() {
         v6.18*)
             glue+=( "${script_dir}/6.18/glue/bcachefs-glue-kconf.patch" )
 
-            if [[ -d "${script_dir}/6.18/glue/v1.31.8/" ]]; then
-                glue+=( "${script_dir}/6.18/glue/v1.31.8/"*.patch )
+            if [[ -d "${script_dir}/6.18/glue/${bcachefs_tag}/" ]]; then
+                glue+=( "${script_dir}/6.18/glue/${bcachefs_tag}/"*.patch )
             fi
             ;;
         *)
