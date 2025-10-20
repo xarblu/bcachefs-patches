@@ -132,7 +132,7 @@ function generate_out_file() {
     fi
 
     if [[ -d "${OUT_FILE}" ]]; then
-        OUT_FILE="${OUT_FILE%/}/bcachefs-${bcachefs_tag}-for-${linux_tag}.patch"
+        OUT_FILE="${OUT_FILE%/}/bcachefs-${bcachefs_tag}-for-${linux_tag%-rc*}.patch"
     else
         log 'Output %s does not end with .patch and is not an existing directory' \
             "${OUT_FILE}"
