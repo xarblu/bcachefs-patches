@@ -1,0 +1,33 @@
+From 518bf42dc62419cb0636d8f4533ba7f73f8780f3 Mon Sep 17 00:00:00 2001
+From: Kent Overstreet <kent.overstreet@linux.dev>
+Date: Wed, 15 Oct 2025 11:48:38 -0400
+Subject: block: Re-add export for bio_iov_iter_get_pages
+
+82dd5d763c9b block: rename bio_iov_iter_get_pages_aligned to bio_iov_iter_get_pages
+
+silently deleted the EXPORT_SYMBOL_GPL() for bio_iov_iter_get_pages, in
+the course of some renaming and refactoring.
+
+However, this is used by bcachefs; as the original author of this code,
+I'm readding it.
+
+Signed-off-by: Kent Overstreet <kent.overstreet@linux.dev>
+---
+ block/bio.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/block/bio.c b/block/bio.c
+index b3a79285c278..5d6df3e859a9 100644
+--- a/block/bio.c
++++ b/block/bio.c
+@@ -1360,6 +1360,7 @@ int bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter,
+ 		return bio_iov_iter_align_down(bio, iter, len_align_mask);
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(bio_iov_iter_get_pages);
+ 
+ static void submit_bio_wait_endio(struct bio *bio)
+ {
+-- 
+cgit v1.2.3
+
