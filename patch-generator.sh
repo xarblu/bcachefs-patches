@@ -41,11 +41,12 @@ function confirm() {
 # --help listing
 function help() {
     log 'Usage:'
-    log '  -o|--output  Output file or directory'
-    log '               If file (.patch extension) this exact file is used'
-    log '               If directory (must exist) auto generate a patch'
-    log '               If not given auto generates file in current directory'
-    log '  -t|--tag     Linux tag to base patch on. Latest if unset.'
+    log '  -o|--output   Output file or directory'
+    log '                If file (.patch extension) this exact file is used'
+    log '                If directory (must exist) auto generate a patch'
+    log '                If not given auto generates file in current directory'
+    log '  -t|--tag      Linux tag to base patch on. Latest if unset.'
+    lof '  -s|--snapshot Bcachefs snapshot (commit) to use instead of last tagged release.'
 }
 
 # argparser
@@ -68,7 +69,14 @@ function parse_args() {
                 shift
                 TAG="${1}"
                 ;;
-
+            -s|--snapshot)
+                if (( ${#} < 2 )); then
+                    log 'Expected argument after %s' "${1}"
+                    exit 1
+                fi
+                shift
+                SNAPSHOT="${1}"
+                ;;
             -h|--help)
                 help
                 exit 0
@@ -107,13 +115,27 @@ function check_remotes() {
 # returned in REPLY
 function last_tag() {
     local ref="${1}"
-    local tag
-    if ! tag="$(git describe --abbrev=0 "${ref}")"; then
+    if ! REPLY="$(git describe --abbrev=0 "${ref}")"; then
         log 'Failed to get tag for ref: %s' "${ref}"
         exit 1
     fi
+}
 
-    REPLY="${tag}"
+# get date of commit formatted as YYYYMMDDHHMMSS
+# returned in REPLY
+function commit_date() {
+    if ! pushd "${LINUX_REPO}" >/dev/null; then
+        log 'Failed to cd into linux source tree: %s' "${LINUX_REPO}"
+        exit 1
+    fi
+
+    local ref="${1}"
+    if ! REPLY="$(git show --no-patch --format=format:%cI "${ref}" | sed -E -e 's/[+-][0-9][0-9]:[0-9][0-9]$//g' -e 's/[T:-]//g')"; then
+        log 'Failed to get date for ref: %s' "${ref}"
+        exit 1
+    fi
+
+    popd >/dev/null || exit 1
 }
 
 # generate output file name
@@ -249,9 +271,15 @@ function glue_patch() {
 function main() {
     parse_args "${@}"
 
-    update_bcachefs_tools
     local bcachefs_tag bcachefs_commit
-    IFS=':' read -r bcachefs_tag bcachefs_commit <<<"${REPLY}"
+    if [[ -z "${SNAPSHOT}" ]]; then
+        update_bcachefs_tools
+        IFS=':' read -r bcachefs_tag bcachefs_commit <<<"${REPLY}"
+    else
+        commit_date "${SNAPSHOT}"
+        bcachefs_tag="${REPLY}"
+        bcachefs_commit="${SNAPSHOT}"
+    fi
 
     update_linux
     local linux_tag="${REPLY}"
@@ -266,8 +294,8 @@ function main() {
     # which we'll ignore for now unless that starts causing issues.
     # DKMS wouldn't have those changes either
     local -a bch_paths=(
-            Documentation/filesystems/bcachefs
-            fs/bcachefs
+        Documentation/filesystems/bcachefs
+        fs/bcachefs
     )
 
     local diff="${linux_tag}..${bcachefs_commit}"
