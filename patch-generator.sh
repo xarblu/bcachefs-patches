@@ -16,6 +16,8 @@ declare -g LINUX_BCACHEFS_REMOTE='bcachefs'
 declare -g BCACHEFS_TOOLS_REPO="${BASH_SOURCE[0]%/*}/../bcachefs-tools"
 declare -g BCACHEFS_TOOLS_REMOTE='origin'
 
+set -o pipefail
+
 # log utility function writing to stderr
 function log() {
     local fmt="${1}"
