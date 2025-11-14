@@ -311,7 +311,7 @@ function main() {
         IFS=':' read -r bcachefs_tag bcachefs_commit <<<"${REPLY}"
     else
         detect_bch_version "${SNAPSHOT}"
-        bcachefs_tag="${REPLY}"
+        bcachefs_tag="v${REPLY}"
         commit_date "${SNAPSHOT}"
         bcachefs_tag+="_pre${REPLY}"
         bcachefs_commit="${SNAPSHOT}"
