@@ -140,6 +140,35 @@ function commit_date() {
     popd >/dev/null || exit 1
 }
 
+# detect bcachefs on disk version format at specified commit
+# returned in REPLY
+function detect_bch_version() {
+    local ref="${1}"
+
+    local parser bch_version
+
+    parser="$(readlink -e "${BASH_SOURCE[0]%/*}/parse_bch_version.pl")"
+    if [[ ! -x "${parser}" ]]; then
+        log 'Parser script does not exist at %s or is not executable' "${parser}"
+        exit 1
+    fi
+
+    if ! pushd "${LINUX_REPO}" >/dev/null; then
+        log 'Failed to cd into linux source tree: %s' "${LINUX_REPO}"
+        exit 1
+    fi
+
+    local fmt_h="fs/bcachefs/bcachefs_format.h"
+    if ! bch_version="$(git cat-file -p "${ref}:${fmt_h}" | "${parser}")"; then
+        log 'Failed to parse bcachefs version'
+        exit 1
+    fi
+
+    REPLY="${bch_version}"
+
+    popd >/dev/null || exit 1
+}
+
 # generate output file name
 # returned in REPLY
 function generate_out_file() {
@@ -210,7 +239,7 @@ function update_linux() {
 
     check_remotes "${LINUX_REMOTE}" "${LINUX_BCACHEFS_REMOTE}"
 
-    log 'Fetching updates via git'
+    log 'Updates Linux source trees (git fetch)'
     git fetch "${LINUX_REMOTE}"
     git fetch "${LINUX_BCACHEFS_REMOTE}"
 
@@ -273,18 +302,20 @@ function glue_patch() {
 function main() {
     parse_args "${@}"
 
+    update_linux
+    local linux_tag="${REPLY}"
+
     local bcachefs_tag bcachefs_commit
     if [[ -z "${SNAPSHOT}" ]]; then
         update_bcachefs_tools
         IFS=':' read -r bcachefs_tag bcachefs_commit <<<"${REPLY}"
     else
-        commit_date "${SNAPSHOT}"
+        detect_bch_version "${SNAPSHOT}"
         bcachefs_tag="${REPLY}"
+        commit_date "${SNAPSHOT}"
+        bcachefs_tag+="_pre${REPLY}"
         bcachefs_commit="${SNAPSHOT}"
     fi
-
-    update_linux
-    local linux_tag="${REPLY}"
 
     generate_out_file "${bcachefs_tag}" "${linux_tag}"
     local file="${REPLY}"
