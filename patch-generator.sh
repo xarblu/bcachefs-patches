@@ -274,11 +274,15 @@ function glue_patch() {
     local -a glue
     case "${linux_tag}" in
         v6.17*) ;;
-        v6.18*)
-            glue+=( "${script_dir}/6.18/glue/bcachefs-glue-kconf.patch" )
+        v6.18*|v6.19*)
+            local dir="${linux_tag}"
+            dir="${dir%-rc*}"
+            dir="${dir#v}"
 
-            if [[ -d "${script_dir}/6.18/glue/${bcachefs_tag}/" ]]; then
-                glue+=( "${script_dir}/6.18/glue/${bcachefs_tag}/"*.patch )
+            glue+=( "${script_dir}/${dir}/glue/bcachefs-glue-kconf.patch" )
+
+            if [[ -d "${script_dir}/${dir}/glue/${bcachefs_tag}/" ]]; then
+                glue+=( "${script_dir}${dir}/glue/${bcachefs_tag}/"*.patch )
             fi
             ;;
         *)
