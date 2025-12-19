@@ -1,0 +1,198 @@
+From 53161baac2de125b1b8413c6b2653221d81662f2 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 16 Dec 2025 23:06:21 +0100
+Subject: [PATCH 1/2] bcachefs: 6.19 compatibility
+
+Changes
+ - vendor mempool_init_kvmalloc_pool
+ - arg changes for filemap_alloc_folio
+ - inode->v.istate -> inode_state*()
+---
+ fs/bcachefs/Makefile         |  1 +
+ fs/bcachefs/btree/init.c     |  4 +++-
+ fs/bcachefs/data/compress.c  |  8 +++++---
+ fs/bcachefs/vendor/mempool.c | 21 +++++++++++++++++++++
+ fs/bcachefs/vendor/mempool.h | 12 ++++++++++++
+ fs/bcachefs/vfs/buffered.c   |  4 ++++
+ fs/bcachefs/vfs/fs.c         | 13 +++++++++++++
+ 7 files changed, 59 insertions(+), 4 deletions(-)
+ create mode 100644 fs/bcachefs/vendor/mempool.c
+ create mode 100644 fs/bcachefs/vendor/mempool.h
+
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index 8c7e0e2de1fd..3adec309c897 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -111,6 +111,7 @@ bcachefs-y		:=			\
+ 	util/varint.o				\
+ 	vendor/bio_iov_iter.o			\
+ 	vendor/closure.o			\
++	vendor/mempool.o			\
+ 	vendor/min_heap.o			\
+ 	vfs/fiemap.o				\
+ 	vfs/fs.o				\
+diff --git a/fs/bcachefs/btree/init.c b/fs/bcachefs/btree/init.c
+index ebfe4243cbee..659b5bce3b63 100644
+--- a/fs/bcachefs/btree/init.c
++++ b/fs/bcachefs/btree/init.c
+@@ -11,6 +11,8 @@
+ #include "btree/write.h"
+ #include "btree/write_buffer.h"
+ 
++#include "vendor/mempool.h"
++
+ void bch2_fs_btree_exit(struct bch_fs *c)
+ {
+ 	bch2_find_btree_nodes_exit(&c->btree.node_scan);
+@@ -56,7 +58,7 @@ int bch2_fs_btree_init(struct bch_fs *c)
+ 			max(offsetof(struct btree_read_bio, bio),
+ 			    offsetof(struct btree_write_bio, wbio.bio)),
+ 			BIOSET_NEED_BVECS) ||
+-	    mempool_init_kvmalloc_pool(&c->btree.bounce_pool, 1,
++	    bch2_mempool_init_kvmalloc_pool(&c->btree.bounce_pool, 1,
+ 				       c->opts.btree_node_size))
+ 		return bch_err_throw(c, ENOMEM_fs_other_alloc);
+ 
+diff --git a/fs/bcachefs/data/compress.c b/fs/bcachefs/data/compress.c
+index 4e843264d4f6..ccdda34911fb 100644
+--- a/fs/bcachefs/data/compress.c
++++ b/fs/bcachefs/data/compress.c
+@@ -10,6 +10,8 @@
+ 
+ #include "init/error.h"
+ 
++#include "vendor/mempool.h"
++
+ #include <linux/lz4.h>
+ #include <linux/zlib.h>
+ #include <linux/zstd.h>
+@@ -625,12 +627,12 @@ static int __bch2_fs_compress_init(struct bch_fs *c, u64 features)
+ 		return 0;
+ 
+ 	if (!mempool_initialized(&c->compress.bounce[READ]) &&
+-	    mempool_init_kvmalloc_pool(&c->compress.bounce[READ],
++	    bch2_mempool_init_kvmalloc_pool(&c->compress.bounce[READ],
+ 				       1, c->opts.encoded_extent_max))
+ 		return bch_err_throw(c, ENOMEM_compression_bounce_read_init);
+ 
+ 	if (!mempool_initialized(&c->compress.bounce[WRITE]) &&
+-	    mempool_init_kvmalloc_pool(&c->compress.bounce[WRITE],
++	    bch2_mempool_init_kvmalloc_pool(&c->compress.bounce[WRITE],
+ 				       1, c->opts.encoded_extent_max))
+ 		return bch_err_throw(c, ENOMEM_compression_bounce_write_init);
+ 
+@@ -643,7 +645,7 @@ static int __bch2_fs_compress_init(struct bch_fs *c, u64 features)
+ 		if (mempool_initialized(&c->compress.workspace[i->type]))
+ 			continue;
+ 
+-		if (mempool_init_kvmalloc_pool(
++		if (bch2_mempool_init_kvmalloc_pool(
+ 				&c->compress.workspace[i->type],
+ 				1, i->compress_workspace))
+ 			return bch_err_throw(c, ENOMEM_compression_workspace_init);
+diff --git a/fs/bcachefs/vendor/mempool.c b/fs/bcachefs/vendor/mempool.c
+new file mode 100644
+index 000000000000..c1cec88c1949
+--- /dev/null
++++ b/fs/bcachefs/vendor/mempool.c
+@@ -0,0 +1,21 @@
++// SPDX-License-Identifier: GPL-2.0
++#ifndef NO_BCACHEFS_FS
++
++#include <linux/mempool.h>
++#include <linux/slab.h>
++#include <linux/types.h>
++
++#include "vendor/mempool.h"
++
++void *bch2_mempool_kvmalloc(gfp_t gfp_mask, void *pool_data)
++{
++	size_t size = (size_t)pool_data;
++	return kvmalloc(size, gfp_mask);
++}
++
++void bch2_mempool_kvfree(void *element, void *pool_data)
++{
++	kvfree(element);
++}
++
++#endif /* NO_BCACHEFS_FS */
+diff --git a/fs/bcachefs/vendor/mempool.h b/fs/bcachefs/vendor/mempool.h
+new file mode 100644
+index 000000000000..0dceeaebcb78
+--- /dev/null
++++ b/fs/bcachefs/vendor/mempool.h
+@@ -0,0 +1,12 @@
++#ifndef _BCACHEFS_VENDOR_MEMPOOL_H
++#define _BCACHEFS_VENDOR_MEMPOOL_H
++
++void *bch2_mempool_kvmalloc(gfp_t gfp_mask, void *pool_data);
++void bch2_mempool_kvfree(void *element, void *pool_data);
++
++static inline int bch2_mempool_init_kvmalloc_pool(mempool_t *pool, int min_nr, size_t size)
++{
++	return mempool_init(pool, min_nr, bch2_mempool_kvmalloc, bch2_mempool_kvfree, (void *) size);
++}
++
++#endif /* _BCACHEFS_VENDOR_MEMPOOL_H */
+diff --git a/fs/bcachefs/vfs/buffered.c b/fs/bcachefs/vfs/buffered.c
+index 48226cbb0bbd..0417b8bfd1e0 100644
+--- a/fs/bcachefs/vfs/buffered.c
++++ b/fs/bcachefs/vfs/buffered.c
+@@ -144,7 +144,11 @@ static int readpage_bio_extend(struct btree_trans *trans,
+ 			if (folio && !xa_is_value(folio))
+ 				break;
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0)
+ 			folio = filemap_alloc_folio(readahead_gfp_mask(iter->mapping), order);
++#else
++			folio = filemap_alloc_folio(readahead_gfp_mask(iter->mapping), order, NULL);
++#endif
+ 			if (!folio)
+ 				break;
+ 
+diff --git a/fs/bcachefs/vfs/fs.c b/fs/bcachefs/vfs/fs.c
+index 75e53bd23bce..11eaa9a5abd6 100644
+--- a/fs/bcachefs/vfs/fs.c
++++ b/fs/bcachefs/vfs/fs.c
+@@ -333,7 +333,11 @@ static struct bch_inode_info *bch2_inode_hash_find(struct bch_fs *c, struct btre
+ 			spin_unlock(&inode->v.i_lock);
+ 			return NULL;
+ 		}
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0)
+ 		if ((inode->v.i_state & (I_FREEING|I_WILL_FREE))) {
++#else
++		if ((inode_state_read(&inode->v) & (I_FREEING|I_WILL_FREE))) {
++#endif
+ 			if (!trans) {
+ 				__wait_on_freeing_inode(c, inode, inum);
+ 			} else {
+@@ -397,7 +401,11 @@ static struct bch_inode_info *bch2_inode_hash_insert(struct bch_fs *c,
+ 		 * only insert fully created inodes in the inode hash table. But
+ 		 * discard_new_inode() expects it to be set...
+ 		 */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0)
+ 		inode->v.i_state |= I_NEW;
++#else
++		inode_state_set_raw(&inode->v, I_NEW);
++#endif
+ 		/*
+ 		 * We don't want bch2_evict_inode() to delete the inode on disk,
+ 		 * we just raced and had another inode in cache. Normally new
+@@ -1882,8 +1890,13 @@ void bch2_evict_subvolume_inodes(struct bch_fs *c, snapshot_id_list *s)
+ 		if (!snapshot_list_has_id(s, inode->ei_inum.subvol))
+ 			continue;
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0)
+ 		if (!(inode->v.i_state & I_DONTCACHE) &&
+ 		    !(inode->v.i_state & I_FREEING) &&
++#else
++		if (!(inode_state_read_once(&inode->v) & I_DONTCACHE) &&
++		    !(inode_state_read_once(&inode->v) & I_FREEING) &&
++#endif
+ 		    igrab(&inode->v)) {
+ 			this_pass_clean = false;
+ 
+-- 
+2.52.0
+
