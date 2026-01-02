@@ -1,4 +1,4 @@
-From 008d13a7a25ef4ab741ae9cc1bdc3577635bc754 Mon Sep 17 00:00:00 2001
+From 0ad115a4df6678510a0c8f58f0168413d9bff53f Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Fri, 2 Jan 2026 14:13:11 +0100
 Subject: [PATCH 3/3] bcachefs: fix build with 6.18+
