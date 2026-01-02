@@ -1,7 +1,7 @@
-From e0922e9d81e1180604b99c318c3df7d1cf5eb122 Mon Sep 17 00:00:00 2001
+From dc10688821d1fb1700533a9772b3212a4ef4455c Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Wed, 17 Dec 2025 13:32:49 +0100
-Subject: [PATCH 2/2] kernel/hung_task.c: re-export
+Subject: [PATCH 2/3] kernel/hung_task.c: re-export
  sysctl_hung_task_timeout_secs
 
 Needed by bcachefs if building as a module.

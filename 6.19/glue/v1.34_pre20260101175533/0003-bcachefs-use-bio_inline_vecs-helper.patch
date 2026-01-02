@@ -1,0 +1,26 @@
+From 46caa07ede0a34fd67e2a4caa59c274ee8f8bdf9 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Fri, 2 Jan 2026 14:13:11 +0100
+Subject: [PATCH 3/3] bcachefs: use bio_inline_vecs helper
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/journal/read.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/bcachefs/journal/read.c b/fs/bcachefs/journal/read.c
+index f73376dc9ba0..c1ed7cfad776 100644
+--- a/fs/bcachefs/journal/read.c
++++ b/fs/bcachefs/journal/read.c
+@@ -1071,7 +1071,7 @@ static int journal_read_bucket(struct bch_dev *ca,
+ 				end - offset, buf->size >> 9);
+ 			nr_bvecs = buf_pages(buf->data, sectors_read << 9);
+ 
+-			bio = kmalloc(struct_size(bio, bi_inline_vecs, nr_bvecs), GFP_KERNEL);
++			bio = kmalloc(struct_size(bio, bio_inline_vecs(bio), nr_bvecs), GFP_KERNEL);
+ 			if (!bio)
+ 				return bch_err_throw(c, ENOMEM_journal_read_bucket);
+ 			bio_init(bio, ca->disk_sb.bdev, bio_inline_vecs(bio), nr_bvecs, REQ_OP_READ);
+-- 
+2.52.0
+
