@@ -8,12 +8,15 @@
 #   - origin -> git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 #   - bcachefs -> git://evilpiepirate.org/bcachefs.git
 
+# shellcheck disable=SC2155
+declare -g SCRIPT_DIR="$(readlink -e "${BASH_SOURCE[0]%/*}")" 
+
 # git repos and remotes used
-declare -g LINUX_REPO="${BASH_SOURCE[0]%/*}/../linux"
+declare -g LINUX_REPO="${SCRIPT_DIR}/../linux"
 declare -g LINUX_REMOTE='origin'
 declare -g LINUX_BCACHEFS_REMOTE='bcachefs'
 
-declare -g BCACHEFS_TOOLS_REPO="${BASH_SOURCE[0]%/*}/../bcachefs-tools"
+declare -g BCACHEFS_TOOLS_REPO="${SCRIPT_DIR}/../bcachefs-tools"
 declare -g BCACHEFS_TOOLS_REMOTE='origin'
 
 set -o pipefail
@@ -48,7 +51,7 @@ function help() {
     log '                If directory (must exist) auto generate a patch'
     log '                If not given auto generates file in current directory'
     log '  -t|--tag      Linux tag to base patch on. Latest if unset.'
-    lof '  -s|--snapshot Bcachefs snapshot (commit) to use instead of last tagged release.'
+    lof '  -s|--snapshot bcachefs-tools snapshot (commit) to use instead of last tagged release.'
 }
 
 # argparser
@@ -126,8 +129,8 @@ function last_tag() {
 # get date of commit formatted as YYYYMMDDHHMMSS
 # returned in REPLY
 function commit_date() {
-    if ! pushd "${LINUX_REPO}" >/dev/null; then
-        log 'Failed to cd into linux source tree: %s' "${LINUX_REPO}"
+    if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
+        log 'Failed to cd into bcachefs-tools tree: %s' "${LINUX_REPO}"
         exit 1
     fi
 
@@ -147,7 +150,7 @@ function detect_bch_version() {
 
     local parser bch_version
 
-    parser="$(readlink -e "${BASH_SOURCE[0]%/*}/parse_bch_version.pl")"
+    parser="${SCRIPT_DIR}/parse_bch_version.pl"
     if [[ ! -x "${parser}" ]]; then
         log 'Parser script does not exist at %s or is not executable' "${parser}"
         exit 1
@@ -199,7 +202,11 @@ function generate_out_file() {
 # based on bcachefs-tools tagged release
 # result in REPLY as tag:commit
 function update_bcachefs_tools() {
-    log 'Detecting latest stable bcachefs commit from bcachefs-tools'
+    if [[ -z "${SNAPSHOT}" ]]; then
+        log 'Detecting latest stable bcachefs commit from bcachefs-tools'
+    else
+        log 'Detecting latest snapshot bcachefs commit from bcachefs-tools'
+    fi
 
     if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
         log 'Failed to cd into bcachefs-tools source tree: %s' "${BCACHEFS_TOOLS_REPO}"
@@ -211,19 +218,57 @@ function update_bcachefs_tools() {
     log 'Fetching updates via git'
     git fetch "${BCACHEFS_TOOLS_REMOTE}"
 
-    last_tag "${BCACHEFS_TOOLS_REMOTE}/master"
-    local tag="${REPLY}"
-    log 'Detected last tag: %s' "${tag}"
-
-    local commit
-    if ! commit="$(git cat-file -p "${tag}:.bcachefs_revision")"; then
-        log 'Failed to cat .bcachefs_revision at tag %s' "${tag}"
-        exit 1
+    local bch_tools_rev
+    if [[ -z "${SNAPSHOT}" ]]; then
+        last_tag "${BCACHEFS_TOOLS_REMOTE}/master"
+        bch_tools_rev="${REPLY}"
+        log 'Using detected last tag: %s' "${bch_tools_rev}"
+    else
+        bch_tools_rev="${SNAPSHOT}"
+        log 'Using provided revision: %s' "${bch_tools_rev}"
     fi
 
-    log 'Detected commit %s for tag %s' "${commit}" "${tag}"
+    local bch_commit
+    if ! bch_commit="$(git cat-file -p "${bch_tools_rev}:.bcachefs_revision")"; then
+        log 'Failed to cat .bcachefs_revision at revision %s' "${bch_tools_rev}"
+        exit 1
+    fi
+    log 'Detected commit %s for revision %s' "${bch_commit}" "${bch_tools_rev}"
 
-    REPLY="${tag}:${commit}"
+    local version_string
+    if ! version_string="$(git -c safe.directory="${PWD}" -c core.abbrev=12 describe "${bch_tools_rev}")"; then
+        log 'Failed to generate version string from bcachefs-tools'
+        exit 1
+    fi
+    log 'Generated module version string: %s' "${version_string}"
+
+    # tag used to name the patch file
+    local tag
+    if [[ -z "${SNAPSHOT}" ]]; then
+        tag="${bch_tools_rev}"
+    else
+        last_tag "${SNAPSHOT}"
+        local last_stable_tag="${REPLY}"
+        detect_bch_version "${bch_commit}"
+        tag="v${REPLY}"
+        
+        # last_stable_tag has major.minor.patch
+        # detected version from bcachefs repo
+        # has major.minor
+        # If major.minor matches this is a snapshot for
+        # the next patch, if not it's for the next minor release
+        # (assuming no major changes)
+        if [[ "${last_stable_tag}" == "${tag}"* ]]; then
+            tag="${tag}.$(( "${last_stable_tag##*.}" + 1 ))"
+        else
+            tag="${tag}.0"
+        fi
+
+        commit_date "${SNAPSHOT}"
+        tag+="_pre${REPLY}"
+    fi
+
+    REPLY="${tag}:${bch_commit}:${version_string}"
 
     popd >/dev/null || exit 1
 }
@@ -269,8 +314,6 @@ function glue_patch() {
     local linux_tag="${1}"
     local bcachefs_tag="${2}"
 
-    local script_dir="${BASH_SOURCE[0]%/*}"
-
     local -a glue
     case "${linux_tag}" in
         v6.17*) ;;
@@ -279,10 +322,10 @@ function glue_patch() {
             dir="${dir%-rc*}"
             dir="${dir#v}"
 
-            glue+=( "${script_dir}/${dir}/glue/bcachefs-kconf.patch" )
+            glue+=( "${SCRIPT_DIR}/${dir}/glue/bcachefs-kconf.patch" )
 
-            if [[ -d "${script_dir}/${dir}/glue/${bcachefs_tag}/" ]]; then
-                glue+=( "${script_dir}/${dir}/glue/${bcachefs_tag}/"*.patch )
+            if [[ -d "${SCRIPT_DIR}/${dir}/glue/${bcachefs_tag}/" ]]; then
+                glue+=( "${SCRIPT_DIR}/${dir}/glue/${bcachefs_tag}/"*.patch )
             fi
             ;;
         *)
@@ -308,22 +351,14 @@ function module_version_patch() {
     linux_tag="${linux_tag#v}"
     linux_tag="${linux_tag%-rc*}"
 
-    local bcachefs_tag="${2}"
-    bcachefs_tag="${bcachefs_tag#v}"
-    bcachefs_tag="${bcachefs_tag%_pre*}"
+    local version_string="${2}"
 
-    local bcachefs_commit="${3}"
-    bcachefs_commit="${bcachefs_commit::12}"
-
-    local script_dir="${BASH_SOURCE[0]%/*}"
-    local module_version_patch="${script_dir}/${linux_tag}/glue/bcachefs-module-version.patch"
+    local module_version_patch="${SCRIPT_DIR}/${linux_tag}/glue/bcachefs-module-version.patch"
 
     if [[ ! -f "${module_version_patch}" ]]; then
         log 'Module version patch does not exist: %s' "${module_version_patch}"
         exit 1
     fi
-
-    local version_string="${bcachefs_tag}-${bcachefs_commit}"
 
     log 'Appending module version patch with version: %s' "${version_string}"
     perl -pe "s/%%VERSION_STRING%%/${version_string}/" "${module_version_patch}"
@@ -335,18 +370,9 @@ function main() {
     update_linux
     local linux_tag="${REPLY}"
 
-    local bcachefs_tag bcachefs_commit
-    if [[ -z "${SNAPSHOT}" ]]; then
-        update_bcachefs_tools
-        IFS=':' read -r bcachefs_tag bcachefs_commit <<<"${REPLY}"
-    else
-        detect_bch_version "${SNAPSHOT}"
-        bcachefs_tag="v${REPLY}"
-        commit_date "${SNAPSHOT}"
-        bcachefs_tag+="_pre${REPLY}"
-        bcachefs_commit="${SNAPSHOT}"
-    fi
-
+    local bcachefs_tag bcachefs_commit bcachefs_version_string
+    update_bcachefs_tools
+    IFS=':' read -r bcachefs_tag bcachefs_commit bcachefs_version_string <<<"${REPLY}"
     generate_out_file "${bcachefs_tag}" "${linux_tag}"
     local file="${REPLY}"
 
@@ -370,7 +396,7 @@ function main() {
         git diff "${diff}" -- "${bch_paths[@]}" > "${file}"
         popd >/dev/null || exit 1
         glue_patch "${linux_tag}" "${bcachefs_tag}" >> "${file}"
-        module_version_patch "${linux_tag}" "${bcachefs_tag}" "${bcachefs_commit}" >> "${file}"
+        module_version_patch "${linux_tag}" "${bcachefs_version_string}" >> "${file}"
     fi
 }
 
