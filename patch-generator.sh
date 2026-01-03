@@ -279,7 +279,7 @@ function glue_patch() {
             dir="${dir%-rc*}"
             dir="${dir#v}"
 
-            glue+=( "${script_dir}/${dir}/glue/bcachefs-glue-kconf.patch" )
+            glue+=( "${script_dir}/${dir}/glue/bcachefs-kconf.patch" )
 
             if [[ -d "${script_dir}/${dir}/glue/${bcachefs_tag}/" ]]; then
                 glue+=( "${script_dir}/${dir}/glue/${bcachefs_tag}/"*.patch )
@@ -301,6 +301,32 @@ function glue_patch() {
         log 'Appending glue patch: %s' "${f}"
         cat "${f}" || exit 1
     done
+}
+
+function module_version_patch() {
+    local linux_tag="${1}"
+    linux_tag="${linux_tag#v}"
+    linux_tag="${linux_tag%-rc*}"
+
+    local bcachefs_tag="${2}"
+    bcachefs_tag="${bcachefs_tag#v}"
+    bcachefs_tag="${bcachefs_tag%_pre*}"
+
+    local bcachefs_commit="${3}"
+    bcachefs_commit="${bcachefs_commit::12}"
+
+    local script_dir="${BASH_SOURCE[0]%/*}"
+    local module_version_patch="${script_dir}/${linux_tag}/glue/bcachefs-module-version.patch"
+
+    if [[ ! -f "${module_version_patch}" ]]; then
+        log 'Module version patch does not exist: %s' "${module_version_patch}"
+        exit 1
+    fi
+
+    local version_string="${bcachefs_tag}-${bcachefs_commit}"
+
+    log 'Appending module version patch with version: %s' "${version_string}"
+    perl -pe "s/%%VERSION_STRING%%/${version_string}/" "${module_version_patch}"
 }
 
 function main() {
@@ -344,6 +370,7 @@ function main() {
         git diff "${diff}" -- "${bch_paths[@]}" > "${file}"
         popd >/dev/null || exit 1
         glue_patch "${linux_tag}" "${bcachefs_tag}" >> "${file}"
+        module_version_patch "${linux_tag}" "${bcachefs_tag}" "${bcachefs_commit}" >> "${file}"
     fi
 }
 
