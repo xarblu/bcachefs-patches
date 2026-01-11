@@ -1,0 +1,29 @@
+From de6fc190d00e20424701054000ee77fb9422d6e7 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Wed, 17 Dec 2025 13:32:49 +0100
+Subject: [PATCH 2/3] kernel/hung_task.c: re-export
+ sysctl_hung_task_timeout_secs
+
+Needed by bcachefs if building as a module.
+
+Probably needs to be vendorized again although
+I don't know if that's possible with sysctl variables.
+---
+ kernel/hung_task.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/kernel/hung_task.c b/kernel/hung_task.c
+index d2254c91450b..bfe4020629f0 100644
+--- a/kernel/hung_task.c
++++ b/kernel/hung_task.c
+@@ -51,6 +51,7 @@ static unsigned long __read_mostly sysctl_hung_task_detect_count;
+  * Zero means infinite timeout - no checking done:
+  */
+ unsigned long __read_mostly sysctl_hung_task_timeout_secs = CONFIG_DEFAULT_HUNG_TASK_TIMEOUT;
++EXPORT_SYMBOL_GPL(sysctl_hung_task_timeout_secs);
+ 
+ /*
+  * Zero (default value) means use sysctl_hung_task_timeout_secs:
+-- 
+2.52.0
+
