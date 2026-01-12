@@ -44,18 +44,26 @@ function confirm() {
 }
 
 # --help listing
-function help() {
+function usage() {
     log 'Usage:'
     log '  -o|--output   Output file or directory'
     log '                If file (.patch extension) this exact file is used'
     log '                If directory (must exist) auto generate a patch'
     log '                If not given auto generates file in current directory'
     log '  -t|--tag      Linux tag to base patch on. Latest if unset.'
-    lof '  -s|--snapshot bcachefs-tools snapshot (commit) to use instead of last tagged release.'
+    log '  -s|--snapshot bcachefs-tools snapshot (commit) to use instead of last tagged release.'
+    log '  -n|--no-glue  Dont append any glue patches - just create the base bcachefs patch.'
+    log "                NOTE: This patch won't work on its own and is mainly intended as a clean base for rebasing glue patches."
 }
 
 # argparser
 function parse_args() {
+    # defaults / unset to prevent leakage from env
+    unset OUT_FILE
+    unset TAG
+    unset SNAPSHOT
+    GLUE=1
+
     while (( ${#} > 0 )); do
         case "${1}" in
             -o|--output)
@@ -82,8 +90,11 @@ function parse_args() {
                 shift
                 SNAPSHOT="${1}"
                 ;;
+            -n|--no-glue)
+                GLUE=0
+                ;;
             -h|--help)
-                help
+                usage
                 exit 0
                 ;;
             *)
@@ -395,9 +406,12 @@ function main() {
         pushd "${LINUX_REPO}" >/dev/null || exit 1
         git diff "${diff}" -- "${bch_paths[@]}" > "${file}"
         popd >/dev/null || exit 1
-        glue_patch "${linux_tag}" "${bcachefs_tag}" >> "${file}"
-        module_version_patch "${linux_tag}" "${bcachefs_version_string}" >> "${file}"
+        ((GLUE)) && glue_patch "${linux_tag}" "${bcachefs_tag}" >> "${file}"
+        ((GLUE)) && module_version_patch "${linux_tag}" "${bcachefs_version_string}" >> "${file}"
+        return 0
     fi
+    
+    return 1
 }
 
 main "${@}"

@@ -1,0 +1,39 @@
+commit 579204aa24d1aba6450a796710136bcebc4b0557
+Author: Xarblu <xarblu@protonmail.com>
+Date:   Mon Jan 12 18:56:16 2026 +0100
+
+    bcachefs: module version
+    
+    Signed-off-by: Xarblu <xarblu@protonmail.com>
+
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index f6c7b84597a7..a215a1e58cb1 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -128,9 +128,7 @@ ifndef BCACHEFS_DKMS
+ 	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
+ endif
+ 
+-ifdef BCACHEFS_DKMS
+ 	bcachefs-y += module-version.o
+-endif
+ 
+ # Silence "note: xyz changed in GCC X.X" messages
+ subdir-ccflags-y += $(call cc-disable-warning, psabi)
+diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
+new file mode 100644
+index 000000000000..4cda91103707
+--- /dev/null
++++ b/fs/bcachefs/module-version.c
+@@ -0,0 +1,11 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * bcachefs module version information.
++ *
++ * Copyright 2010, 2011 Kent Overstreet <kent.overstreet@gmail.com>
++ * Copyright 2012 Google, Inc.
++ */
++
++#include <linux/module.h>
++
++MODULE_VERSION("%%VERSION_STRING%%");

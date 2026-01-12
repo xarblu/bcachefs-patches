@@ -1,5 +1,13 @@
+commit aa3d320dc11bad40e9113a3fb209690ab8e04be9
+Author: Xarblu <xarblu@protonmail.com>
+Date:   Mon Jan 12 18:54:19 2026 +0100
+
+    bcachefs: add to Kconfig
+    
+    Signed-off-by: Xarblu <xarblu@protonmail.com>
+
 diff --git a/fs/Kconfig b/fs/Kconfig
-index 7815379032da..c654a3642897 100644
+index 0bfdaecaa877..187a75440aca 100644
 --- a/fs/Kconfig
 +++ b/fs/Kconfig
 @@ -51,6 +51,7 @@ source "fs/ocfs2/Kconfig"
