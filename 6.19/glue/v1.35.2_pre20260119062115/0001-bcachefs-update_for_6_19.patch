@@ -1,0 +1,227 @@
+From e9546cca4f20b493a0f5131d5b50121f9a28dd8f Mon Sep 17 00:00:00 2001
+From: Kent Overstreet <kent.overstreet@linux.dev>
+Date: Mon, 19 Jan 2026 07:57:42 -0500
+Subject: bcachefs: Update for v6.19
+
+Signed-off-by: Kent Overstreet <kent.overstreet@linux.dev>
+---
+ fs/bcachefs/btree/cache.c           |  7 ++++++-
+ fs/bcachefs/btree/node_scan.c       |  8 +++-----
+ fs/bcachefs/journal/read.c          |  7 ++-----
+ fs/bcachefs/util/thread_with_file.c |  8 ++------
+ fs/bcachefs/util/util.c             | 13 +++++++++++++
+ fs/bcachefs/util/util.h             | 15 +++++++++++++++
+ fs/bcachefs/vfs/buffered.c          |  4 ++++
+ fs/bcachefs/vfs/fs.c                | 26 +++++++++++++++++++++-----
+ 8 files changed, 66 insertions(+), 22 deletions(-)
+
+diff --git a/fs/bcachefs/btree/cache.c b/fs/bcachefs/btree/cache.c
+index 71ad216699bf..ce2799114729 100644
+--- a/fs/bcachefs/btree/cache.c
++++ b/fs/bcachefs/btree/cache.c
+@@ -160,7 +160,12 @@ static const struct rhashtable_params bch_btree_cache_params = {
+ static int btree_node_data_alloc(struct bch_fs *c, struct btree *b, gfp_t gfp,
+ 				 bool avoid_compaction)
+ {
+-	gfp |= __GFP_ACCOUNT|__GFP_RECLAIMABLE;
++	/*
++	 * We probably ought to be using __GFP_RECLAIMABLE - but vmalloc barfs.
++	 *
++	 * Shrinkable memory accounting is fubar.
++	 */
++	gfp |= __GFP_ACCOUNT;
+ 
+ 	if (!b->data) {
+ 		if (avoid_compaction && bch2_mm_avoid_compaction) {
+diff --git a/fs/bcachefs/btree/node_scan.c b/fs/bcachefs/btree/node_scan.c
+index 350c28d6c25d..7edb2f2e6a9e 100644
+--- a/fs/bcachefs/btree/node_scan.c
++++ b/fs/bcachefs/btree/node_scan.c
+@@ -313,11 +313,9 @@ static int read_btree_nodes(struct find_btree_nodes *f)
+ 
+ 	bch_notice(c, "%s", buf.buf);
+ err:
+-	if (!sysctl_hung_task_timeout_secs)
+-		closure_sync(&cl);
+-	else
+-		while (closure_sync_timeout(&cl, sysctl_hung_task_timeout_secs * HZ / 2))
+-			;
++	/* Suppress hung task warning: */
++	while (closure_sync_timeout(&cl, HZ))
++		;
+ 
+ 	return f->ret ?: ret;
+ }
+diff --git a/fs/bcachefs/journal/read.c b/fs/bcachefs/journal/read.c
+index 0a7821ac4800..410e2fe85f92 100644
+--- a/fs/bcachefs/journal/read.c
++++ b/fs/bcachefs/journal/read.c
+@@ -1376,11 +1376,8 @@ int bch2_journal_read(struct bch_fs *c, struct journal_start_info *info)
+ 			set_bit(JOURNAL_degraded, &c->journal.flags);
+ 	}
+ 
+-	if (!sysctl_hung_task_timeout_secs)
+-		closure_sync(&jlist.cl);
+-	else
+-		while (closure_sync_timeout(&jlist.cl, sysctl_hung_task_timeout_secs * HZ / 2))
+-			;
++	while (closure_sync_timeout(&jlist.cl, HZ))
++		;
+ 
+ 	if (jlist.ret)
+ 		return jlist.ret;
+diff --git a/fs/bcachefs/util/thread_with_file.c b/fs/bcachefs/util/thread_with_file.c
+index 7ccfc16fad09..87344ab27577 100644
+--- a/fs/bcachefs/util/thread_with_file.c
++++ b/fs/bcachefs/util/thread_with_file.c
+@@ -341,11 +341,7 @@ int bch2_stdio_redirect_read(struct stdio_redirect *stdio, char *ubuf, size_t le
+ 	 * closed), don't want a hung task warning:
+ 	 */
+ 	do {
+-		if (!sysctl_hung_task_timeout_secs)
+-			wait_event(buf->wait, stdio_redirect_has_input(stdio));
+-		else
+-			wait_event_timeout(buf->wait, stdio_redirect_has_input(stdio),
+-					   sysctl_hung_task_timeout_secs * HZ / 2);
++		wait_event_timeout(buf->wait, stdio_redirect_has_input(stdio), HZ);
+ 	} while (!stdio_redirect_has_input(stdio));
+ 
+ 	if (stdio->done)
+@@ -378,7 +374,7 @@ int bch2_stdio_redirect_readline_timeout(struct stdio_redirect *stdio,
+ 			? max_t(long, until - jiffies, 0)
+ 			: timeout;
+ 
+-		t = min(t, sysctl_hung_task_timeout_secs * HZ / 2);
++		t = min(t, HZ);
+ 
+ 		wait_event_timeout(buf->wait, stdio_redirect_has_more_input(stdio, seen), t);
+ 
+diff --git a/fs/bcachefs/util/util.c b/fs/bcachefs/util/util.c
+index c9891b70e218..d538758b0202 100644
+--- a/fs/bcachefs/util/util.c
++++ b/fs/bcachefs/util/util.c
+@@ -1015,3 +1015,16 @@ err:
+ 	darray_exit_free_item(ret, kfree);
+ 	return -ENOMEM;
+ }
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0)
++void *mempool_kvmalloc(gfp_t gfp_mask, void *pool_data)
++{
++	size_t size = (size_t)pool_data;
++	return kvmalloc(size, gfp_mask);
++}
++
++void mempool_kvfree(void *element, void *pool_data)
++{
++	kvfree(element);
++}
++#endif
+diff --git a/fs/bcachefs/util/util.h b/fs/bcachefs/util/util.h
+index caca1b6ff489..3a6b22ca4afa 100644
+--- a/fs/bcachefs/util/util.h
++++ b/fs/bcachefs/util/util.h
+@@ -831,4 +831,19 @@ static inline void *class_memalloc_flags_lock_ptr(class_memalloc_flags_t *_T)
+ 	return _T;
+ }
+ 
++void *mempool_kvmalloc(gfp_t gfp_mask, void *pool_data);
++void mempool_kvfree(void *element, void *pool_data);
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0)
++static inline int mempool_init_kvmalloc_pool(mempool_t *pool, int min_nr, size_t size)
++{
++        return mempool_init(pool, min_nr, mempool_kvmalloc, mempool_kvfree, (void *) size);
++}
++
++static inline mempool_t *mempool_create_kvmalloc_pool(int min_nr, size_t size)
++{
++        return mempool_create(min_nr, mempool_kvmalloc, mempool_kvfree, (void *) size);
++}
++#endif
++
+ #endif /* _BCACHEFS_UTIL_H */
+diff --git a/fs/bcachefs/vfs/buffered.c b/fs/bcachefs/vfs/buffered.c
+index 48226cbb0bbd..0417b8bfd1e0 100644
+--- a/fs/bcachefs/vfs/buffered.c
++++ b/fs/bcachefs/vfs/buffered.c
+@@ -144,7 +144,11 @@ static int readpage_bio_extend(struct btree_trans *trans,
+ 			if (folio && !xa_is_value(folio))
+ 				break;
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0)
+ 			folio = filemap_alloc_folio(readahead_gfp_mask(iter->mapping), order);
++#else
++			folio = filemap_alloc_folio(readahead_gfp_mask(iter->mapping), order, NULL);
++#endif
+ 			if (!folio)
+ 				break;
+ 
+diff --git a/fs/bcachefs/vfs/fs.c b/fs/bcachefs/vfs/fs.c
+index c3bb6a8d6e02..7bdff9f208c6 100644
+--- a/fs/bcachefs/vfs/fs.c
++++ b/fs/bcachefs/vfs/fs.c
+@@ -48,6 +48,23 @@
+ #include <linux/version.h>
+ #include <linux/xattr.h>
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0)
++static inline unsigned inode_state_read(struct inode *inode)
++{
++	return inode->i_state;
++}
++
++static inline unsigned inode_state_read_once(struct inode *inode)
++{
++	return READ_ONCE(inode->i_state);
++}
++
++static inline void inode_state_set_raw(struct inode *inode, unsigned flags)
++{
++	WRITE_ONCE(inode->i_state, inode->i_state|flags);
++}
++#endif
++
+ static struct kmem_cache *bch2_inode_cache;
+ 
+ static void bch2_vfs_inode_init(struct btree_trans *, subvol_inum,
+@@ -333,7 +350,7 @@ repeat:
+ 			spin_unlock(&inode->v.i_lock);
+ 			return NULL;
+ 		}
+-		if ((inode->v.i_state & (I_FREEING|I_WILL_FREE))) {
++		if (inode_state_read(&inode->v) & (I_FREEING|I_WILL_FREE)) {
+ 			if (!trans) {
+ 				__wait_on_freeing_inode(c, inode, inum);
+ 			} else {
+@@ -397,7 +414,7 @@ retry:
+ 		 * only insert fully created inodes in the inode hash table. But
+ 		 * discard_new_inode() expects it to be set...
+ 		 */
+-		inode->v.i_state |= I_NEW;
++		inode_state_set_raw(&inode->v, I_NEW);
+ 		/*
+ 		 * We don't want bch2_evict_inode() to delete the inode on disk,
+ 		 * we just raced and had another inode in cache. Normally new
+@@ -1835,7 +1852,7 @@ static void bch2_evict_inode(struct inode *vinode)
+ 		write_inode_now(&inode->v, true);
+ 
+ 	if (IS_ENABLED(CONFIG_BCACHEFS_DEBUG) || !delete) {
+-		BUG_ON(inode->v.i_state & I_DIRTY);
++		BUG_ON(inode_state_read_once(&inode->v) & I_DIRTY);
+ 
+ 		struct bch_inode_unpacked inode_u;
+ 		if (!is_bad_inode(&inode->v) &&
+@@ -1916,8 +1933,7 @@ again:
+ 		if (!snapshot_list_has_id(s, inode->ei_inum.subvol))
+ 			continue;
+ 
+-		if (!(inode->v.i_state & I_DONTCACHE) &&
+-		    !(inode->v.i_state & I_FREEING) &&
++		if (!(inode_state_read_once(&inode->v) & (I_DONTCACHE|I_FREEING)) &&
+ 		    igrab(&inode->v)) {
+ 			this_pass_clean = false;
+ 
+-- 
+cgit v1.2.3
+
