@@ -127,12 +127,12 @@ function check_remotes() {
     done
 }
 
-# get last git tag name before ref in arg 1
+# get last git tag name before rev in arg 1
 # returned in REPLY
 function last_tag() {
-    local ref="${1}"
-    if ! REPLY="$(git describe --abbrev=0 "${ref}")"; then
-        log 'Failed to get tag for ref: %s' "${ref}"
+    local rev="${1}"
+    if ! REPLY="$(git describe --abbrev=0 "${rev}")"; then
+        log 'Failed to get tag for rev: %s' "${rev}"
         exit 1
     fi
 }
@@ -141,13 +141,13 @@ function last_tag() {
 # returned in REPLY
 function commit_date() {
     if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
-        log 'Failed to cd into bcachefs-tools tree: %s' "${LINUX_REPO}"
+        log 'Failed to cd into bcachefs-tools tree: %s' "${BCACHEFS_TOOLS_REPO}"
         exit 1
     fi
 
-    local ref="${1}"
-    if ! REPLY="$(git show --no-patch --format=format:%cI "${ref}" | sed -E -e 's/[+-][0-9][0-9]:[0-9][0-9]$//g' -e 's/[T:-]//g')"; then
-        log 'Failed to get date for ref: %s' "${ref}"
+    local rev="${1}"
+    if ! REPLY="$(git show --no-patch --format=format:%cI "${rev}" | sed -E -e 's/[+-][0-9][0-9]:[0-9][0-9]$//g' -e 's/[T:-]//g')"; then
+        log 'Failed to get date for rev: %s' "${rev}"
         exit 1
     fi
 
@@ -157,7 +157,7 @@ function commit_date() {
 # detect bcachefs on disk version format at specified commit
 # returned in REPLY
 function detect_bch_version() {
-    local ref="${1}"
+    local rev="${1}"
 
     local parser bch_version
 
@@ -167,13 +167,13 @@ function detect_bch_version() {
         exit 1
     fi
 
-    if ! pushd "${LINUX_REPO}" >/dev/null; then
-        log 'Failed to cd into linux source tree: %s' "${LINUX_REPO}"
+    if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
+        log 'Failed to cd into bcachefs-tools tree: %s' "${BCACHEFS_TOOLS_REPO}"
         exit 1
     fi
 
-    local fmt_h="fs/bcachefs/bcachefs_format.h"
-    if ! bch_version="$(git cat-file -p "${ref}:${fmt_h}" | "${parser}")"; then
+    local fmt_h="libbcachefs/bcachefs_format.h"
+    if ! bch_version="$(git cat-file -p "${rev}:${fmt_h}" | "${parser}")"; then
         log 'Failed to parse bcachefs version'
         exit 1
     fi
@@ -211,13 +211,9 @@ function generate_out_file() {
 
 # detect latest stable bcachefs revision
 # based on bcachefs-tools tagged release
-# result in REPLY as tag:commit
+# result in REPLY as tag:commit:
 function update_bcachefs_tools() {
-    if [[ -z "${SNAPSHOT}" ]]; then
-        log 'Detecting latest stable bcachefs commit from bcachefs-tools'
-    else
-        log 'Detecting latest snapshot bcachefs commit from bcachefs-tools'
-    fi
+    log 'Detecting required metadata from bcachefs-tools'
 
     if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
         log 'Failed to cd into bcachefs-tools source tree: %s' "${BCACHEFS_TOOLS_REPO}"
@@ -229,22 +225,17 @@ function update_bcachefs_tools() {
     log 'Fetching updates via git'
     git fetch "${BCACHEFS_TOOLS_REMOTE}"
 
+    last_tag "${BCACHEFS_TOOLS_REMOTE}/master"
+    local bch_tools_last_tag="${REPLY}"
+
     local bch_tools_rev
     if [[ -z "${SNAPSHOT}" ]]; then
-        last_tag "${BCACHEFS_TOOLS_REMOTE}/master"
-        bch_tools_rev="${REPLY}"
-        log 'Using detected last tag: %s' "${bch_tools_rev}"
+        bch_tools_rev="$(git rev-list -1 "${bch_tools_last_tag}")"
+        log 'Using detected last tag: %s (%s)' "${bch_tools_last_tag}" "${bch_tools_rev}"
     else
-        bch_tools_rev="${SNAPSHOT}"
-        log 'Using provided revision: %s' "${bch_tools_rev}"
+        bch_tools_rev="$(git rev-list -1 "${SNAPSHOT}")"
+        log 'Using provided revision: %s (%s)' "${SNAPSHOT}" "${bch_tools_rev}"
     fi
-
-    local bch_commit
-    if ! bch_commit="$(git cat-file -p "${bch_tools_rev}:.bcachefs_revision")"; then
-        log 'Failed to cat .bcachefs_revision at revision %s' "${bch_tools_rev}"
-        exit 1
-    fi
-    log 'Detected commit %s for revision %s' "${bch_commit}" "${bch_tools_rev}"
 
     local version_string
     if ! version_string="$(git -c safe.directory="${PWD}" -c core.abbrev=12 describe "${bch_tools_rev}")"; then
@@ -256,11 +247,12 @@ function update_bcachefs_tools() {
     # tag used to name the patch file
     local tag
     if [[ -z "${SNAPSHOT}" ]]; then
-        tag="${bch_tools_rev}"
+        tag="${bch_tools_last_tag}"
     else
-        last_tag "${SNAPSHOT}"
-        local last_stable_tag="${REPLY}"
-        detect_bch_version "${bch_commit}"
+        # 
+        last_tag "${bch_tools_rev}"
+        bch_tools_last_tag="${REPLY}"
+        detect_bch_version "${bch_tools_rev}"
         tag="v${REPLY}"
         
         # last_stable_tag has major.minor.patch
@@ -269,17 +261,17 @@ function update_bcachefs_tools() {
         # If major.minor matches this is a snapshot for
         # the next patch, if not it's for the next minor release
         # (assuming no major changes)
-        if [[ "${last_stable_tag}" == "${tag}"* ]]; then
-            tag="${tag}.$(( "${last_stable_tag##*.}" + 1 ))"
+        if [[ "${bch_tools_last_tag}" == "${tag}"* ]]; then
+            tag="${tag}.$(( "${bch_tools_last_tag##*.}" + 1 ))"
         else
             tag="${tag}.0"
         fi
 
-        commit_date "${SNAPSHOT}"
+        commit_date "${bch_tools_rev}"
         tag+="_pre${REPLY}"
     fi
 
-    REPLY="${tag}:${bch_commit}:${version_string}"
+    REPLY="${tag}:${bch_tools_rev}:${version_string}"
 
     popd >/dev/null || exit 1
 }
@@ -375,37 +367,58 @@ function module_version_patch() {
     perl -pe "s/%%VERSION_STRING%%/${version_string}/" "${module_version_patch}"
 }
 
+function bcachefs_patch_from_tools_rev() {
+    local rev="${1}"
+
+    if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
+        log 'Failed to cd into bcachefs-tools source tree: %s' "${BCACHEFS_TOOLS_REPO}"
+        exit 1
+    fi
+
+    # we should probably squash these somehow to save
+    # space but eh
+    local -a git_args=(
+        format-patch
+        --stdout
+
+        # adjust to linux source tree
+        --src-prefix=a/fs/bcachefs/
+        --dst-prefix=b/fs/bcachefs/
+
+        # diff from history start to rev
+        --root "${rev}"
+
+        # only libbcachefs
+        --relative=libbcachefs
+        -- libbcachefs
+    )
+
+    if ! git "${git_args[@]}"; then
+        log 'Failed to create patch for rev %s' "${rev}"
+        exit 1
+    fi
+
+    popd >/dev/null || exit 1
+}
+
 function main() {
     parse_args "${@}"
 
     update_linux
     local linux_tag="${REPLY}"
 
-    local bcachefs_tag bcachefs_commit bcachefs_version_string
+    local bcachefs_tag bcachefs_tools_commit bcachefs_version_string
     update_bcachefs_tools
-    IFS=':' read -r bcachefs_tag bcachefs_commit bcachefs_version_string <<<"${REPLY}"
+    IFS=':' read -r bcachefs_tag bcachefs_tools_commit bcachefs_version_string <<<"${REPLY}"
     generate_out_file "${bcachefs_tag}" "${linux_tag}"
     local file="${REPLY}"
 
-    # We need to limit the diff path to bcachefs related stuff
-    # to not pull in random bits when diffing with older tags.
-    # Kent's tree seems to occasionally touch things like
-    # closures.h or generic-radix-tree.h
-    # which we'll ignore for now unless that starts causing issues.
-    # DKMS wouldn't have those changes either
-    local -a bch_paths=(
-        Documentation/filesystems/bcachefs
-        fs/bcachefs
-    )
+    log 'About to create patch for: %s (bachefs-tools %s)' \
+        "${bcachefs_version_string}" \
+        "${bcachefs_tools_commit}"
 
-    local diff="${linux_tag}..${bcachefs_commit}"
-    
-    log 'About to diff: %s' "${diff}"
-
-    if confirm "Write patch to ${file}"; then
-        pushd "${LINUX_REPO}" >/dev/null || exit 1
-        git diff "${diff}" -- "${bch_paths[@]}" > "${file}"
-        popd >/dev/null || exit 1
+    if confirm "Write patch to ${file}?"; then
+        bcachefs_patch_from_tools_rev "${bcachefs_tools_commit}" > "${file}"
         ((GLUE)) && glue_patch "${linux_tag}" "${bcachefs_tag}" >> "${file}"
         ((GLUE)) && module_version_patch "${linux_tag}" "${bcachefs_version_string}" >> "${file}"
         return 0
