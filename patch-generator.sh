@@ -29,6 +29,12 @@ function log() {
     printf " \e[32m*\e[0m ${fmt}\n" "${@}" 1>&2
 }
 
+# log + exit shorthand
+function die() {
+    log "${@}"
+    exit 1
+}
+
 # Y/n prompt
 function confirm() {
     local prompt="${1:-'Confirm?'}"
@@ -373,36 +379,43 @@ function module_version_patch() {
 
 function bcachefs_patch_from_tools_rev() {
     local rev="${1}"
+    local dest="${2}"
+    local staging
+
+    # preperation
+    staging="$(mktemp -d)" || die "Failed to create staging dir ${staging}"
+
+    log "Preparing staging area in ${staging}"
 
     if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
         log 'Failed to cd into bcachefs-tools source tree: %s' "${BCACHEFS_TOOLS_REPO}"
         exit 1
     fi
 
-    # we should probably squash these somehow to save
-    # space but eh
-    local -a git_args=(
-        format-patch
-        --stdout
-
-        # adjust to linux source tree
-        --src-prefix=a/fs/bcachefs/
-        --dst-prefix=b/fs/bcachefs/
-
-        # diff from history start to rev
-        --root "${rev}"
-
-        # only libbcachefs
-        --relative=libbcachefs
-        -- libbcachefs
-    )
-
-    if ! git "${git_args[@]}"; then
-        log 'Failed to create patch for rev %s' "${rev}"
-        exit 1
+    # fetch bcachefs files from bcachefs-tools
+    # and transform them to linux source tree structure on the fly
+    if ! git archive "${rev}" | tar -x --transform='s|libbcachefs|fs/bcachefs|' -C "${staging}" libbcachefs; then
+        die "Failed to snapshot bcachefs-tools repo into ${staging}"
     fi
 
-    popd >/dev/null || exit 1
+    popd >/dev/null || die "popd failed"
+
+    # create the actual patch
+    pushd "${staging}" >/dev/null || die 'Failed to cd into staging area: %s' "${staging}"
+
+    git init || die "git init failed"
+    git add . || die "git add failed"
+    git commit --no-gpg-sign -m "bcachefs-tools ${rev}" || die "git commit failed"
+    git format-patch --stdout --root > "${dest}" || die "failed to write patch file"
+
+    popd >/dev/null || die "popd failed"
+
+    log "Successfully created base patch"
+
+    # cleanup
+    if confirm "Remove staging dir ${staging}?"; then
+        rm -rf "${staging}" || die "rm failed"
+    fi
 }
 
 function main() {
@@ -422,7 +435,7 @@ function main() {
         "${bcachefs_tools_commit}"
 
     if confirm "Write patch to ${file}?"; then
-        bcachefs_patch_from_tools_rev "${bcachefs_tools_commit}" > "${file}"
+        bcachefs_patch_from_tools_rev "${bcachefs_tools_commit}" "${file}"
         ((GLUE)) && glue_patch "${linux_tag}" "${bcachefs_tag}" >> "${file}"
         ((GLUE)) && module_version_patch "${linux_tag}" "${bcachefs_version_string}" >> "${file}"
         return 0
