@@ -206,6 +206,10 @@ function generate_out_file() {
         exit 1
     fi
 
+    if ! ((GLUE)); then
+        OUT_FILE="${OUT_FILE%.patch}-no-glue.patch"
+    fi
+
     REPLY="$(readlink -m "${OUT_FILE}")"
 }
 
