@@ -330,7 +330,7 @@ function glue_patch() {
     local -a glue
     case "${linux_tag}" in
         v6.17*) ;;
-        v6.18*|v6.19*)
+        v6.18*|v6.19*|v7.0*)
             local dir="${linux_tag}"
             dir="${dir%-rc*}"
             dir="${dir#v}"

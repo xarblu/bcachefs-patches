@@ -1,0 +1,25 @@
+From 9e10767336d107363f052e3297884158cdef49a4 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 23 Feb 2026 19:43:42 +0100
+Subject: [PATCH 1/2] bcachefs: add missing hex.h include
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/util/printbuf.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/fs/bcachefs/util/printbuf.h b/fs/bcachefs/util/printbuf.h
+index e0e35b2d398a..3c15d6ef42fb 100644
+--- a/fs/bcachefs/util/printbuf.h
++++ b/fs/bcachefs/util/printbuf.h
+@@ -63,6 +63,7 @@
+  * human readable bytes. prt_units() obeys it.
+  */
+ 
++#include <linux/hex.h>
+ #include <linux/kernel.h>
+ #include <linux/string.h>
+ 
+-- 
+2.53.0
+
