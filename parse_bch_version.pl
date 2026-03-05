@@ -2,7 +2,7 @@
 
 my $version = "";
 while (<>) {
-    if (/x\(\S+,\s+BCH_VERSION\((\d+), (\d+)\)\)/) {
+    if (/x\(\S+,\s+BCH_VERSION\((\d+), (\d+)\)/) {
         $version = "$1.$2";
     }
 }

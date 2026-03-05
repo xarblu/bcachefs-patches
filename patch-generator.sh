@@ -180,7 +180,7 @@ function detect_bch_version() {
 
     local fmt_h="libbcachefs/bcachefs_format.h"
     if ! bch_version="$(git cat-file -p "${rev}:${fmt_h}" | "${parser}")"; then
-        log 'Failed to parse bcachefs version'
+        log 'Failed to parse bcachefs version from %s' "${fmt_h}"
         exit 1
     fi
 
