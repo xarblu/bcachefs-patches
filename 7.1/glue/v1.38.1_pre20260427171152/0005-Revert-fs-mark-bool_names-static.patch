@@ -1,0 +1,48 @@
+From d3ae5275424b294dd52e19ca105e8fd6b3c94b1c Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 27 Apr 2026 21:13:07 +0200
+Subject: [PATCH 5/5] Revert "fs: mark bool_names static"
+
+This reverts commit 0d799df5b147e08828887fe7299efd7a9e0eea40.
+---
+ fs/fs_parser.c            | 3 ++-
+ include/linux/fs_parser.h | 2 ++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/fs/fs_parser.c b/fs/fs_parser.c
+index b4cc4cce518a..3d9bd655da71 100644
+--- a/fs/fs_parser.c
++++ b/fs/fs_parser.c
+@@ -13,7 +13,7 @@
+ #include <linux/namei.h>
+ #include "internal.h"
+ 
+-static const struct constant_table bool_names[] = {
++const struct constant_table bool_names[] = {
+ 	{ "0",		false },
+ 	{ "1",		true },
+ 	{ "false",	false },
+@@ -22,6 +22,7 @@ static const struct constant_table bool_names[] = {
+ 	{ "yes",	true },
+ 	{ },
+ };
++EXPORT_SYMBOL(bool_names);
+ 
+ static const struct constant_table *
+ __lookup_constant(const struct constant_table *tbl, const char *name)
+diff --git a/include/linux/fs_parser.h b/include/linux/fs_parser.h
+index 98b83708f92b..aecc8eb42b86 100644
+--- a/include/linux/fs_parser.h
++++ b/include/linux/fs_parser.h
+@@ -84,6 +84,8 @@ extern int fs_lookup_param(struct fs_context *fc,
+ 
+ extern int lookup_constant(const struct constant_table tbl[], const char *name, int not_found);
+ 
++extern const struct constant_table bool_names[];
++
+ #ifdef CONFIG_VALIDATE_FS_PARSER
+ extern bool fs_validate_description(const char *name,
+ 				    const struct fs_parameter_spec *desc);
+-- 
+2.54.0
+
