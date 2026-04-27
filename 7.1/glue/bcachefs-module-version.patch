@@ -1,0 +1,46 @@
+From d68ea148fe5b4192ec24de18571f451ebbb62793 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 23 Feb 2026 19:28:06 +0100
+Subject: [PATCH] bcachefs: unconditional module version
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/Makefile         |  2 --
+ fs/bcachefs/module-version.c | 11 +++++++++++
+ 2 files changed, 11 insertions(+), 2 deletions(-)
+ create mode 100644 fs/bcachefs/module-version.c
+
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index b6ac5ed69ae0..9152920670f4 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -133,9 +133,7 @@ ifndef BCACHEFS_DKMS
+ 	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
+ endif
+ 
+-ifdef BCACHEFS_DKMS
+ 	bcachefs-y += module-version.o
+-endif
+ 
+ # Silence "note: xyz changed in GCC X.X" messages
+ subdir-ccflags-y += $(call cc-disable-warning, psabi)
+diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
+new file mode 100644
+index 000000000000..4cda91103707
+--- /dev/null
++++ b/fs/bcachefs/module-version.c
+@@ -0,0 +1,11 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * bcachefs module version information.
++ *
++ * Copyright 2010, 2011 Kent Overstreet <kent.overstreet@gmail.com>
++ * Copyright 2012 Google, Inc.
++ */
++
++#include <linux/module.h>
++
++MODULE_VERSION("%%VERSION_STRING%%");
+-- 
+2.54.0
+

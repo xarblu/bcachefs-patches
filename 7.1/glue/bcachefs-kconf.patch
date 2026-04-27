@@ -1,0 +1,38 @@
+From 063615808d340fcd0b8a39598cf0181689cb9b60 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 23 Feb 2026 19:22:56 +0100
+Subject: [PATCH] bcachefs: add to Kconfig
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/Kconfig  | 1 +
+ fs/Makefile | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/fs/Kconfig b/fs/Kconfig
+index 43cb06de297f..dbd0055b36d4 100644
+--- a/fs/Kconfig
++++ b/fs/Kconfig
+@@ -51,6 +51,7 @@ source "fs/ocfs2/Kconfig"
+ source "fs/btrfs/Kconfig"
+ source "fs/nilfs2/Kconfig"
+ source "fs/f2fs/Kconfig"
++source "fs/bcachefs/Kconfig"
+ source "fs/zonefs/Kconfig"
+ 
+ endif # BLOCK
+diff --git a/fs/Makefile b/fs/Makefile
+index ae1b07f9c6a0..18b18360b0b0 100644
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -122,6 +122,7 @@ obj-$(CONFIG_OCFS2_FS)		+= ocfs2/
+ obj-$(CONFIG_BTRFS_FS)		+= btrfs/
+ obj-$(CONFIG_GFS2_FS)           += gfs2/
+ obj-$(CONFIG_F2FS_FS)		+= f2fs/
++obj-$(CONFIG_BCACHEFS_FS)	+= bcachefs/
+ obj-$(CONFIG_CEPH_FS)		+= ceph/
+ obj-$(CONFIG_PSTORE)		+= pstore/
+ obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
+-- 
+2.54.0
+
