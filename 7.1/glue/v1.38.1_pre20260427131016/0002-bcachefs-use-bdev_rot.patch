@@ -1,0 +1,26 @@
+From 941502bc430cf76fd7ef5582906a78d7c6940238 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 27 Apr 2026 21:09:00 +0200
+Subject: [PATCH 2/5] bcachefs: use bdev_rot()
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/sb/members.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/bcachefs/sb/members.c b/fs/bcachefs/sb/members.c
+index b3043cdcac5c..c3d82fd7a5de 100644
+--- a/fs/bcachefs/sb/members.c
++++ b/fs/bcachefs/sb/members.c
+@@ -862,7 +862,7 @@ void __bch2_dev_mi_field_upgrades(struct bch_fs *c, struct bch_dev *ca, bool *wr
+ 	struct bch_member *m = bch2_members_v2_get_mut(c->disk_sb.sb, ca->dev_idx);
+ 
+ 	if (!BCH_MEMBER_ROTATIONAL_SET(m)) {
+-		SET_BCH_MEMBER_ROTATIONAL(m, !bdev_nonrot(ca->disk_sb.bdev));
++		SET_BCH_MEMBER_ROTATIONAL(m, bdev_rot(ca->disk_sb.bdev));
+ 		SET_BCH_MEMBER_ROTATIONAL_SET(m, true);
+ 		*write_sb = true;
+ 	}
+-- 
+2.54.0
+
