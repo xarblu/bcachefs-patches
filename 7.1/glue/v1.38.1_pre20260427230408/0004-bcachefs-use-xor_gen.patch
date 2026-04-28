@@ -1,0 +1,37 @@
+From d30b84cecb68849e768a565c59e3191e1b19bc5e Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 27 Apr 2026 21:12:42 +0200
+Subject: [PATCH 4/5] bcachefs: use xor_gen()
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/data/ec/io.c | 8 +-------
+ 1 file changed, 1 insertion(+), 7 deletions(-)
+
+diff --git a/fs/bcachefs/data/ec/io.c b/fs/bcachefs/data/ec/io.c
+index 1096b55aa99b..eadad7826fc9 100644
+--- a/fs/bcachefs/data/ec/io.c
++++ b/fs/bcachefs/data/ec/io.c
+@@ -24,18 +24,12 @@
+ static void raid5_recov(unsigned disks, unsigned failed_idx,
+ 			size_t size, void **data)
+ {
+-	unsigned i = 2, nr;
+-
+ 	BUG_ON(failed_idx >= disks);
+ 
+ 	swap(data[0], data[failed_idx]);
+ 	memcpy(data[0], data[1], size);
+ 
+-	while (i < disks) {
+-		nr = min_t(unsigned, disks - i, MAX_XOR_BLOCKS);
+-		xor_blocks(nr, size, data[0], data + i);
+-		i += nr;
+-	}
++	xor_gen(data[0], data + 2, disks - 2, size);
+ 
+ 	swap(data[0], data[failed_idx]);
+ }
+-- 
+2.54.0
+
