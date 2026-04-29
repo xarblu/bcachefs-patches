@@ -1,0 +1,35 @@
+From a77bb69bdff15ff4ef1a51adcb991c48a3a6c4e6 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 27 Apr 2026 21:09:53 +0200
+Subject: [PATCH 3/5] bcachefs: i_ino is llu
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/vfs/io.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/fs/bcachefs/vfs/io.c b/fs/bcachefs/vfs/io.c
+index ecfdbdac63b0..9a85363c61bf 100644
+--- a/fs/bcachefs/vfs/io.c
++++ b/fs/bcachefs/vfs/io.c
+@@ -140,7 +140,7 @@ void __bch2_i_sectors_acct(struct bch_fs *c, struct bch_inode_info *inode,
+ {
+ 	if (unlikely((s64) inode->v.i_blocks + sectors < 0)) {
+ 		CLASS(bch_log_msg, msg)(c);
+-		prt_printf(&msg.m, "inode %lu i_blocks underflow: %llu + %lli < 0 (ondisk %lli)",
++		prt_printf(&msg.m, "inode %llu i_blocks underflow: %llu + %lli < 0 (ondisk %lli)",
+ 			   inode->v.i_ino, (u64) inode->v.i_blocks, sectors,
+ 			   inode->ei_inode.bi_sectors);
+ 
+@@ -531,7 +531,7 @@ int bchfs_truncate(struct mnt_idmap *idmap,
+ 		     !bch2_journal_error(&c->journal))) {
+ 		CLASS(bch_log_msg, msg)(c);
+ 		prt_printf(&msg.m,
+-			   "inode %lu truncated to 0 but i_blocks %llu (ondisk %lli)",
++			   "inode %llu truncated to 0 but i_blocks %llu (ondisk %lli)",
+ 			   inode->v.i_ino, (u64) inode->v.i_blocks,
+ 			   inode->ei_inode.bi_sectors);
+ 
+-- 
+2.54.0
+

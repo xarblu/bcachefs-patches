@@ -1,0 +1,44 @@
+From fffe56b4576a4221337160bd4c411e6f0fc3ff22 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 27 Apr 2026 20:12:51 +0200
+Subject: [PATCH 1/5] bcachefs: update header for 7.1
+
+Upstream commit 4e1d77a8f382a0ef4dd7732bb1986c8143600def
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/vfs/io.c        | 2 +-
+ fs/bcachefs/vfs/pagecache.c | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/fs/bcachefs/vfs/io.c b/fs/bcachefs/vfs/io.c
+index 656e28240102..ecfdbdac63b0 100644
+--- a/fs/bcachefs/vfs/io.c
++++ b/fs/bcachefs/vfs/io.c
+@@ -32,9 +32,9 @@
+ #include <linux/aio.h>
+ #include <linux/backing-dev.h>
+ #include <linux/falloc.h>
++#include <linux/folio_batch.h>
+ #include <linux/migrate.h>
+ #include <linux/mmu_context.h>
+-#include <linux/pagevec.h>
+ #include <linux/rmap.h>
+ #include <linux/sched/signal.h>
+ #include <linux/task_io_accounting_ops.h>
+diff --git a/fs/bcachefs/vfs/pagecache.c b/fs/bcachefs/vfs/pagecache.c
+index e940ae48d1fd..8df0ecfc3389 100644
+--- a/fs/bcachefs/vfs/pagecache.c
++++ b/fs/bcachefs/vfs/pagecache.c
+@@ -12,7 +12,7 @@
+ #include "vfs/io.h"
+ #include "vfs/pagecache.h"
+ 
+-#include <linux/pagevec.h>
++#include <linux/folio_batch.h>
+ #include <linux/writeback.h>
+ 
+ int bch2_filemap_get_contig_folios_d(struct address_space *mapping,
+-- 
+2.54.0
+
