@@ -178,7 +178,7 @@ function detect_bch_version() {
         exit 1
     fi
 
-    local fmt_h="libbcachefs/bcachefs_format.h"
+    local fmt_h="fs/bcachefs_format.h"
     if ! bch_version="$(git cat-file -p "${rev}:${fmt_h}" | "${parser}")"; then
         log 'Failed to parse bcachefs version from %s' "${fmt_h}"
         exit 1
@@ -394,7 +394,7 @@ function bcachefs_patch_from_tools_rev() {
 
     # fetch bcachefs files from bcachefs-tools
     # and transform them to linux source tree structure on the fly
-    if ! git archive "${rev}" | tar -x --transform='s|libbcachefs|fs/bcachefs|' -C "${staging}" libbcachefs; then
+    if ! git archive "${rev}" | tar -x --transform='s|^fs|fs/bcachefs|' -C "${staging}" fs; then
         die "Failed to snapshot bcachefs-tools repo into ${staging}"
     fi
 
