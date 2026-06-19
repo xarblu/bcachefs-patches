@@ -1,32 +1,33 @@
-From d68ea148fe5b4192ec24de18571f451ebbb62793 Mon Sep 17 00:00:00 2001
+From 65e08652ad8bfc3bd013bc9fdc5c2756e9fc427c Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
 
 Signed-off-by: Xarblu <xarblu@protonmail.com>
 ---
- fs/bcachefs/Makefile         |  2 --
+ fs/bcachefs/Makefile         |  4 +---
  fs/bcachefs/module-version.c | 11 +++++++++++
- 2 files changed, 11 insertions(+), 2 deletions(-)
+ 2 files changed, 12 insertions(+), 3 deletions(-)
  create mode 100644 fs/bcachefs/module-version.c
 
 diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
-index b6ac5ed69ae0..9152920670f4 100644
+index 061315e..1a70530 100644
 --- a/fs/bcachefs/Makefile
 +++ b/fs/bcachefs/Makefile
-@@ -133,9 +133,7 @@ ifndef BCACHEFS_DKMS
+@@ -199,9 +199,7 @@ ifndef BCACHEFS_DKMS
  	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
  endif
  
 -ifdef BCACHEFS_DKMS
- 	bcachefs-y += module-version.o
+-	bcachefs-y += module-version.o
 -endif
++bcachefs-y += module-version.o
  
- # Silence "note: xyz changed in GCC X.X" messages
- subdir-ccflags-y += $(call cc-disable-warning, psabi)
+ # Rust support — optional, gated on CONFIG_RUST. The C side owns the module
+ # entry points; mod.o is a member object compiled by the kernel's Rust rules
 diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
 new file mode 100644
-index 000000000000..4cda91103707
+index 0000000..4cda911
 --- /dev/null
 +++ b/fs/bcachefs/module-version.c
 @@ -0,0 +1,11 @@
