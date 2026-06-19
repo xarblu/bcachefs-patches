@@ -17,7 +17,7 @@ index 061315e..e42934d 100644
  # back to the C-only module when they are not usable. BCACHEFS_RUST=1 forces the
  # Rust build (useful for debugging); BCACHEFS_RUST=0 disables it explicitly.
 -ifdef CONFIG_RUST
-+ifeq(0,1)
++ifeq (0,1)
  bcachefs-rust-y := y
  ifdef BCACHEFS_DKMS
  BCACHEFS_RUST ?= auto
