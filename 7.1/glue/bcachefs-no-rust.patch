@@ -1,0 +1,26 @@
+From eda730945d2287805339c6af95ef847c48f8511e Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Sat, 20 Jun 2026 00:26:20 +0200
+Subject: [PATCH] bcachefs: disable rust for now
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index 061315e..e42934d 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -216,7 +216,7 @@ endif
+ # match the kernel's Rust setup. Auto-probe the pieces we need and silently fall
+ # back to the C-only module when they are not usable. BCACHEFS_RUST=1 forces the
+ # Rust build (useful for debugging); BCACHEFS_RUST=0 disables it explicitly.
+-ifdef CONFIG_RUST
++ifeq(0,1)
+ bcachefs-rust-y := y
+ ifdef BCACHEFS_DKMS
+ BCACHEFS_RUST ?= auto
+-- 
+2.54.0
+

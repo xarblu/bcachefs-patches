@@ -335,7 +335,10 @@ function glue_patch() {
             dir="${dir%-rc*}"
             dir="${dir#v}"
 
-            glue+=( "${SCRIPT_DIR}/${dir}/glue/bcachefs-kconf.patch" )
+            glue+=(
+                "${SCRIPT_DIR}/${dir}/glue/bcachefs-kconf.patch"
+                "${SCRIPT_DIR}/${dir}/glue/bcachefs-no-rust.patch"
+            )
 
             if [[ -d "${SCRIPT_DIR}/${dir}/glue/${bcachefs_tag}/" ]]; then
                 glue+=( "${SCRIPT_DIR}/${dir}/glue/${bcachefs_tag}/"*.patch )
