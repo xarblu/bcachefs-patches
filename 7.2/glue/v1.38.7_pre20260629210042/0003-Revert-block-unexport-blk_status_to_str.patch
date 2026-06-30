@@ -1,0 +1,51 @@
+From ab53ff207c42c703b7d377a35dffa2b3c949f397 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 15:09:13 +0200
+Subject: [PATCH 3/9] Revert "block: unexport blk_status_to_str"
+
+This reverts commit 82aaa55a3162acaad10baced6f87126a4454a0d7.
+---
+ block/blk-core.c       | 1 +
+ block/blk.h            | 1 -
+ include/linux/blkdev.h | 1 +
+ 3 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/block/blk-core.c b/block/blk-core.c
+index 365641266c9e..43e34d0f0011 100644
+--- a/block/blk-core.c
++++ b/block/blk-core.c
+@@ -215,6 +215,7 @@ const char *blk_status_to_str(blk_status_t status)
+ 		return "<null>";
+ 	return blk_errors[idx].name;
+ }
++EXPORT_SYMBOL_GPL(blk_status_to_str);
+ 
+ const char *blk_status_to_tag(blk_status_t status)
+ {
+diff --git a/block/blk.h b/block/blk.h
+index 25af8ac5ef0f..bdd07a8ffe41 100644
+--- a/block/blk.h
++++ b/block/blk.h
+@@ -50,7 +50,6 @@ struct blk_flush_queue *blk_alloc_flush_queue(int node, int cmd_size,
+ 					      gfp_t flags);
+ void blk_free_flush_queue(struct blk_flush_queue *q);
+ 
+-const char *blk_status_to_str(blk_status_t status);
+ const char *blk_status_to_tag(blk_status_t status);
+ blk_status_t tag_to_blk_status(const char *tag);
+ enum req_op str_to_blk_op(const char *op);
+diff --git a/include/linux/blkdev.h b/include/linux/blkdev.h
+index 9213a5716f95..ed61a790d99b 100644
+--- a/include/linux/blkdev.h
++++ b/include/linux/blkdev.h
+@@ -1046,6 +1046,7 @@ extern const char *blk_op_str(enum req_op op);
+ 
+ int blk_status_to_errno(blk_status_t status);
+ blk_status_t errno_to_blk_status(int errno);
++const char *blk_status_to_str(blk_status_t status);
+ 
+ /* only poll the hardware once, don't continue until a completion was found */
+ #define BLK_POLL_ONESHOT		(1 << 0)
+-- 
+2.55.0
+

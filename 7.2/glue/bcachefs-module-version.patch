@@ -1,0 +1,47 @@
+From ebc751dbddbc0c64b6c79dfea3cee60b9ec8cb9a Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 23 Feb 2026 19:28:06 +0100
+Subject: [PATCH] bcachefs: unconditional module version
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/Makefile         |  4 +---
+ fs/bcachefs/module-version.c | 11 +++++++++++
+ 2 files changed, 12 insertions(+), 3 deletions(-)
+ create mode 100644 fs/bcachefs/module-version.c
+
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index 83e0711caab0..15d6710f1fa4 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -214,9 +214,7 @@ ifndef BCACHEFS_DKMS
+ 	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
+ endif
+ 
+-ifdef BCACHEFS_DKMS
+-	bcachefs-y += module-version.o
+-endif
++bcachefs-y += module-version.o
+ 
+ # Rust support — optional, gated on CONFIG_RUST. The C side owns the module
+ # entry points; mod.o is a member object compiled by the kernel's Rust rules
+diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
+new file mode 100644
+index 000000000000..4cda91103707
+--- /dev/null
++++ b/fs/bcachefs/module-version.c
+@@ -0,0 +1,11 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * bcachefs module version information.
++ *
++ * Copyright 2010, 2011 Kent Overstreet <kent.overstreet@gmail.com>
++ * Copyright 2012 Google, Inc.
++ */
++
++#include <linux/module.h>
++
++MODULE_VERSION("%%VERSION_STRING%%");
+-- 
+2.55.0
+

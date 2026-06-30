@@ -1,0 +1,81 @@
+From 0bed051265b0fd0f0648ff7ab191aced532c5b54 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 15:13:16 +0200
+Subject: [PATCH 5/9] Revert "block: remove bio_copy_data_iter"
+
+This reverts commit 8d57b5876d39679c81d479485422e88319f17418.
+---
+ block/bio.c         | 36 +++++++++++++++++++++---------------
+ include/linux/bio.h |  2 ++
+ 2 files changed, 23 insertions(+), 15 deletions(-)
+
+diff --git a/block/bio.c b/block/bio.c
+index f2a5f4d0a967..370e80f3db5a 100644
+--- a/block/bio.c
++++ b/block/bio.c
+@@ -1593,6 +1593,26 @@ void __bio_advance(struct bio *bio, unsigned bytes)
+ }
+ EXPORT_SYMBOL(__bio_advance);
+ 
++void bio_copy_data_iter(struct bio *dst, struct bvec_iter *dst_iter,
++			struct bio *src, struct bvec_iter *src_iter)
++{
++	while (src_iter->bi_size && dst_iter->bi_size) {
++		struct bio_vec src_bv = bio_iter_iovec(src, *src_iter);
++		struct bio_vec dst_bv = bio_iter_iovec(dst, *dst_iter);
++		unsigned int bytes = min(src_bv.bv_len, dst_bv.bv_len);
++		void *src_buf = bvec_kmap_local(&src_bv);
++		void *dst_buf = bvec_kmap_local(&dst_bv);
++
++		memcpy(dst_buf, src_buf, bytes);
++
++		kunmap_local(dst_buf);
++		kunmap_local(src_buf);
++
++		bio_advance_iter_single(src, src_iter, bytes);
++		bio_advance_iter_single(dst, dst_iter, bytes);
++	}
++}
++EXPORT_SYMBOL(bio_copy_data_iter);
+ 
+ /**
+  * bio_copy_data - copy contents of data buffers from one bio to another
+@@ -1607,21 +1627,7 @@ void bio_copy_data(struct bio *dst, struct bio *src)
+ 	struct bvec_iter src_iter = src->bi_iter;
+ 	struct bvec_iter dst_iter = dst->bi_iter;
+ 
+-	while (src_iter.bi_size && dst_iter.bi_size) {
+-		struct bio_vec src_bv = bio_iter_iovec(src, src_iter);
+-		struct bio_vec dst_bv = bio_iter_iovec(dst, dst_iter);
+-		unsigned int bytes = min(src_bv.bv_len, dst_bv.bv_len);
+-		void *src_buf = bvec_kmap_local(&src_bv);
+-		void *dst_buf = bvec_kmap_local(&dst_bv);
+-
+-		memcpy(dst_buf, src_buf, bytes);
+-
+-		kunmap_local(dst_buf);
+-		kunmap_local(src_buf);
+-
+-		bio_advance_iter_single(src, &src_iter, bytes);
+-		bio_advance_iter_single(dst, &dst_iter, bytes);
+-	}
++	bio_copy_data_iter(dst, &dst_iter, src, &src_iter);
+ }
+ EXPORT_SYMBOL(bio_copy_data);
+ 
+diff --git a/include/linux/bio.h b/include/linux/bio.h
+index 8f33f717b14f..1024adc9ee83 100644
+--- a/include/linux/bio.h
++++ b/include/linux/bio.h
+@@ -488,6 +488,8 @@ int bio_iov_iter_bounce(struct bio *bio, struct iov_iter *iter, size_t maxlen,
+ 		size_t minsize);
+ void bio_iov_iter_unbounce(struct bio *bio, bool is_error, bool mark_dirty);
+ 
++extern void bio_copy_data_iter(struct bio *dst, struct bvec_iter *dst_iter,
++			       struct bio *src, struct bvec_iter *src_iter);
+ extern void bio_copy_data(struct bio *dst, struct bio *src);
+ extern void bio_free_pages(struct bio *bio);
+ void zero_fill_bio(struct bio *bio);
+-- 
+2.55.0
+

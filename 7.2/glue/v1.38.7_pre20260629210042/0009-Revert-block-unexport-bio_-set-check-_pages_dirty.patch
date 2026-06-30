@@ -1,0 +1,33 @@
+From 9c5b6d18e8e90624db16c5c04612001a3440e3bb Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 18:29:14 +0200
+Subject: [PATCH 9/9] Revert "block: unexport bio_{set,check}_pages_dirty"
+
+This reverts commit be34ec59ef061a1cc435a3e066ad71ca675c7fcd.
+---
+ block/bio.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/block/bio.c b/block/bio.c
+index df037c2a10ef..f0662d2493d0 100644
+--- a/block/bio.c
++++ b/block/bio.c
+@@ -1674,6 +1674,7 @@ void bio_set_pages_dirty(struct bio *bio)
+ 		folio_unlock(fi.folio);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(bio_set_pages_dirty);
+ 
+ /*
+  * bio_check_pages_dirty() will check that all the BIO's pages are still dirty.
+@@ -1732,6 +1733,7 @@ void bio_check_pages_dirty(struct bio *bio)
+ 	spin_unlock_irqrestore(&bio_dirty_lock, flags);
+ 	schedule_work(&bio_dirty_work);
+ }
++EXPORT_SYMBOL_GPL(bio_check_pages_dirty);
+ 
+ static inline bool bio_remaining_done(struct bio *bio)
+ {
+-- 
+2.55.0
+

@@ -1,0 +1,52 @@
+From 6e7aea4f670c672d573a886024192b95b350dcae Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 15:03:03 +0200
+Subject: [PATCH 1/9] Revert "fs: fold __start_removing_path into
+ start_removing_path"
+
+This reverts commit 5d833d8ba5b058d391d476fd877a7850965c104f.
+---
+ fs/namei.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/fs/namei.c b/fs/namei.c
+index 5cc9f0f466b8..edfbd0301480 100644
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -2959,17 +2959,16 @@ void end_dirop(struct dentry *de)
+ EXPORT_SYMBOL(end_dirop);
+ 
+ /* does lookup, returns the object with parent locked */
+-struct dentry *start_removing_path(const char *name, struct path *path)
++static struct dentry *__start_removing_path(int dfd, struct filename *name,
++					   struct path *path)
+ {
+-	CLASS(filename_kernel, filename)(name);
+ 	struct path parent_path __free(path_put) = {};
+ 	struct dentry *d;
+ 	struct qstr last;
+ 	enum last_type type;
+ 	int error;
+ 
+-	error = filename_parentat(AT_FDCWD, filename, 0, &parent_path, &last,
+-			&type);
++	error = filename_parentat(dfd, name, 0, &parent_path, &last, &type);
+ 	if (error)
+ 		return ERR_PTR(error);
+ 	if (unlikely(type != LAST_NORM))
+@@ -3030,6 +3029,12 @@ struct dentry *kern_path_parent(const char *name, struct path *path)
+ 	return d;
+ }
+ 
++struct dentry *start_removing_path(const char *name, struct path *path)
++{
++	CLASS(filename_kernel, filename)(name);
++	return __start_removing_path(AT_FDCWD, filename, path);
++}
++
+ int kern_path(const char *name, unsigned int flags, struct path *path)
+ {
+ 	CLASS(filename_kernel, filename)(name);
+-- 
+2.55.0
+

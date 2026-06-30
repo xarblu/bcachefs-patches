@@ -1,0 +1,59 @@
+From 9940e806b4b2e1c98b359ef4ef61c74165d95f8b Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 15:03:13 +0200
+Subject: [PATCH 2/9] Revert "fs: remove start_removing_user_path_at"
+
+This reverts commit e6666aef11053d492ff6e715c89b139fc1655b1c.
+---
+ Documentation/filesystems/porting.rst | 1 +
+ fs/namei.c                            | 9 +++++++++
+ include/linux/namei.h                 | 1 +
+ 3 files changed, 11 insertions(+)
+
+diff --git a/Documentation/filesystems/porting.rst b/Documentation/filesystems/porting.rst
+index d13f0a23c882..003ab084ad48 100644
+--- a/Documentation/filesystems/porting.rst
++++ b/Documentation/filesystems/porting.rst
+@@ -1297,6 +1297,7 @@ Several functions are renamed:
+ -  kern_path_locked -> start_removing_path
+ -  kern_path_create -> start_creating_path
+ -  user_path_create -> start_creating_user_path
++-  user_path_locked_at -> start_removing_user_path_at
+ -  done_path_create -> end_creating_path
+ 
+ ---
+diff --git a/fs/namei.c b/fs/namei.c
+index edfbd0301480..bdf7515c3f21 100644
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -3035,6 +3035,15 @@ struct dentry *start_removing_path(const char *name, struct path *path)
+ 	return __start_removing_path(AT_FDCWD, filename, path);
+ }
+ 
++struct dentry *start_removing_user_path_at(int dfd,
++					   const char __user *name,
++					   struct path *path)
++{
++	CLASS(filename, filename)(name);
++	return __start_removing_path(dfd, filename, path);
++}
++EXPORT_SYMBOL(start_removing_user_path_at);
++
+ int kern_path(const char *name, unsigned int flags, struct path *path)
+ {
+ 	CLASS(filename_kernel, filename)(name);
+diff --git a/include/linux/namei.h b/include/linux/namei.h
+index ebe6e29f7e93..3941b9f1dec7 100644
+--- a/include/linux/namei.h
++++ b/include/linux/namei.h
+@@ -56,6 +56,7 @@ extern struct dentry *start_creating_path(int, const char *, struct path *, unsi
+ extern struct dentry *start_creating_user_path(int, const char __user *, struct path *, unsigned int);
+ extern void end_creating_path(const struct path *, struct dentry *);
+ extern struct dentry *start_removing_path(const char *, struct path *);
++extern struct dentry *start_removing_user_path_at(int , const char __user *, struct path *);
+ static inline void end_removing_path(const struct path *path , struct dentry *dentry)
+ {
+ 	end_creating_path(path, dentry);
+-- 
+2.55.0
+

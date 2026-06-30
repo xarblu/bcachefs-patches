@@ -1,0 +1,39 @@
+From a0fd279813ef893d225cc5d93d8a81bb504bc726 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 15:41:50 +0200
+Subject: [PATCH 8/9] bcachefs: make bio_iter_iovec() result a lvalue
+
+not sure how this worked before but
+on 7.2 clang started complaining that
+we can't grab a reference to an rvalue
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/data/compress.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/fs/bcachefs/data/compress.c b/fs/bcachefs/data/compress.c
+index 49dc5419cc25..64f8678c28b3 100644
+--- a/fs/bcachefs/data/compress.c
++++ b/fs/bcachefs/data/compress.c
+@@ -171,13 +171,15 @@ static struct bbuf __bio_map_or_bounce(struct bch_fs *c, struct bio *bio,
+ 	BUG_ON(start.bi_size > c->opts.encoded_extent_max);
+ 
+ #ifndef CONFIG_HIGHMEM
+-	if (bio_phys_contig(bio, start))
++	if (bio_phys_contig(bio, start)) {
++		struct bio_vec bv = bio_iter_iovec(bio, start);
+ 		return (struct bbuf) {
+ 			.c	= c,
+-			.b	= bvec_virt(&bio_iter_iovec(bio, start)),
++			.b	= bvec_virt(&bv),
+ 			.type	= BB_none,
+ 			.rw	= rw
+ 		};
++	}
+ #endif
+ 
+ #ifdef __KERNEL__
+-- 
+2.55.0
+

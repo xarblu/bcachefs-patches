@@ -1,0 +1,51 @@
+From d144d42395b99d65915fb2832f97231ba57b1acc Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 15:24:25 +0200
+Subject: [PATCH 7/9] bcachefs: 7.2 raid6 api
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/data/ec/io.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/fs/bcachefs/data/ec/io.c b/fs/bcachefs/data/ec/io.c
+index 8e0387b19443..a2ddb58f91d4 100644
+--- a/fs/bcachefs/data/ec/io.c
++++ b/fs/bcachefs/data/ec/io.c
+@@ -57,7 +57,7 @@ static void raid_gen(int nd, int np, size_t size, void **v)
+ 	if (np >= 1)
+ 		raid5_recov(nd + np, nd, size, v);
+ 	if (np >= 2)
+-		raid6_call.gen_syndrome(nd + np, size, v);
++		raid6_gen_syndrome(nd + np, size, v);
+ 	BUG_ON(np > 2);
+ }
+ 
+@@ -70,20 +70,20 @@ static void raid_rec(int nr, int *ir, int nd, int np, size_t size, void **v)
+ 		if (ir[0] < nd + 1)
+ 			raid5_recov(nd + 1, ir[0], size, v);
+ 		else
+-			raid6_call.gen_syndrome(nd + np, size, v);
++			raid6_gen_syndrome(nd + np, size, v);
+ 		break;
+ 	case 2:
+ 		if (ir[1] < nd) {
+ 			/* data+data failure. */
+-			raid6_2data_recov(nd + np, size, ir[0], ir[1], v);
++			raid6_recov_2data(nd + np, size, ir[0], ir[1], v);
+ 		} else if (ir[0] < nd) {
+ 			/* data + p/q failure */
+ 
+ 			if (ir[1] == nd) /* data + p failure */
+-				raid6_datap_recov(nd + np, size, ir[0], v);
++				raid6_recov_datap(nd + np, size, ir[0], v);
+ 			else { /* data + q failure */
+ 				raid5_recov(nd + 1, ir[0], size, v);
+-				raid6_call.gen_syndrome(nd + np, size, v);
++				raid6_gen_syndrome(nd + np, size, v);
+ 			}
+ 		} else {
+ 			raid_gen(nd, np, size, v);
+-- 
+2.55.0
+

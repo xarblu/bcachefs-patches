@@ -1,0 +1,156 @@
+From bfad8942fbff0c904c4ef071de28be28d0333ba9 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 30 Jun 2026 15:12:33 +0200
+Subject: [PATCH 4/9] Revert "fs: retire sget()"
+
+This reverts commit 12863b36bfe4ac0aa93e984c72b2bcd8f08402aa.
+---
+ fs/btrfs/super.c   |  2 +-
+ fs/super.c         | 71 ++++++++++++++++++++++++++++++++++++++++++----
+ include/linux/fs.h |  4 +++
+ 3 files changed, 71 insertions(+), 6 deletions(-)
+
+diff --git a/fs/btrfs/super.c b/fs/btrfs/super.c
+index a7d804219bec..c946bccf0748 100644
+--- a/fs/btrfs/super.c
++++ b/fs/btrfs/super.c
+@@ -2079,7 +2079,7 @@ static int btrfs_get_tree_subvol(struct fs_context *fc)
+ 	 * then open_ctree will properly initialize the file system specific
+ 	 * settings later.  btrfs_init_fs_info initializes the static elements
+ 	 * of the fs_info (locks and such) to make cleanup easier if we find a
+-	 * superblock with our given fs_devices later on at sget_fc() time.
++	 * superblock with our given fs_devices later on at sget() time.
+ 	 */
+ 	fs_info = kvzalloc_obj(struct btrfs_fs_info);
+ 	if (!fs_info)
+diff --git a/fs/super.c b/fs/super.c
+index a8fd61136aaf..855e70bfdd6d 100644
+--- a/fs/super.c
++++ b/fs/super.c
+@@ -328,7 +328,7 @@ static struct super_block *alloc_super(struct file_system_type *type, int flags,
+ 	init_rwsem(&s->s_umount);
+ 	lockdep_set_class(&s->s_umount, &type->s_umount_key);
+ 	/*
+-	 * sget_fc() can have s_umount recursion.
++	 * sget() can have s_umount recursion.
+ 	 *
+ 	 * When it cannot find a suitable sb, it allocates a new
+ 	 * one (this one), and tries again to find a suitable old
+@@ -440,7 +440,7 @@ static void kill_super_notify(struct super_block *sb)
+ 
+ 	/*
+ 	 * Remove it from @fs_supers so it isn't found by new
+-	 * sget_fc() walkers anymore. Any concurrent mounter still
++	 * sget{_fc}() walkers anymore. Any concurrent mounter still
+ 	 * managing to grab a temporary reference is guaranteed to
+ 	 * already see SB_DYING and will wait until we notify them about
+ 	 * SB_DEAD.
+@@ -518,7 +518,7 @@ EXPORT_SYMBOL(deactivate_super);
+  * @sb: superblock to acquire
+  *
+  * Acquire a temporary reference on a superblock and try to trade it for
+- * an active reference. This is used in sget_fc() to wait for a
++ * an active reference. This is used in sget{_fc}() to wait for a
+  * superblock to either become SB_BORN or for it to pass through
+  * sb->kill() and be marked as SB_DEAD.
+  *
+@@ -674,11 +674,11 @@ void generic_shutdown_super(struct super_block *sb)
+ 	/*
+ 	 * Broadcast to everyone that grabbed a temporary reference to this
+ 	 * superblock before we removed it from @fs_supers that the superblock
+-	 * is dying. Every walker of @fs_supers outside of sget_fc() will now
++	 * is dying. Every walker of @fs_supers outside of sget{_fc}() will now
+ 	 * discard this superblock and treat it as dead.
+ 	 *
+ 	 * We leave the superblock on @fs_supers so it can be found by
+-	 * sget_fc() until we passed sb->kill_sb().
++	 * sget{_fc}() until we passed sb->kill_sb().
+ 	 */
+ 	super_wake(sb, SB_DYING);
+ 	super_unlock_excl(sb);
+@@ -810,6 +810,67 @@ struct super_block *sget_fc(struct fs_context *fc,
+ }
+ EXPORT_SYMBOL(sget_fc);
+ 
++/**
++ *	sget	-	find or create a superblock
++ *	@type:	  filesystem type superblock should belong to
++ *	@test:	  comparison callback
++ *	@set:	  setup callback
++ *	@flags:	  mount flags
++ *	@data:	  argument to each of them
++ */
++struct super_block *sget(struct file_system_type *type,
++			int (*test)(struct super_block *,void *),
++			int (*set)(struct super_block *,void *),
++			int flags,
++			void *data)
++{
++	struct user_namespace *user_ns = current_user_ns();
++	struct super_block *s = NULL;
++	struct super_block *old;
++	int err;
++
++retry:
++	spin_lock(&sb_lock);
++	if (test) {
++		hlist_for_each_entry(old, &type->fs_supers, s_instances) {
++			if (!test(old, data))
++				continue;
++			if (user_ns != old->s_user_ns) {
++				spin_unlock(&sb_lock);
++				destroy_unused_super(s);
++				return ERR_PTR(-EBUSY);
++			}
++			if (!grab_super(old))
++				goto retry;
++			destroy_unused_super(s);
++			return old;
++		}
++	}
++	if (!s) {
++		spin_unlock(&sb_lock);
++		s = alloc_super(type, flags, user_ns);
++		if (!s)
++			return ERR_PTR(-ENOMEM);
++		goto retry;
++	}
++
++	err = set(s, data);
++	if (err) {
++		spin_unlock(&sb_lock);
++		destroy_unused_super(s);
++		return ERR_PTR(err);
++	}
++	s->s_type = type;
++	strscpy(s->s_id, type->name, sizeof(s->s_id));
++	list_add_tail(&s->s_list, &super_blocks);
++	hlist_add_head(&s->s_instances, &type->fs_supers);
++	spin_unlock(&sb_lock);
++	get_filesystem(type);
++	shrinker_register(s->s_shrink);
++	return s;
++}
++EXPORT_SYMBOL(sget);
++
+ void drop_super(struct super_block *sb)
+ {
+ 	super_unlock_shared(sb);
+diff --git a/include/linux/fs.h b/include/linux/fs.h
+index d10897b3a1e3..6590e45118e1 100644
+--- a/include/linux/fs.h
++++ b/include/linux/fs.h
+@@ -2337,6 +2337,10 @@ void free_anon_bdev(dev_t);
+ struct super_block *sget_fc(struct fs_context *fc,
+ 			    int (*test)(struct super_block *, struct fs_context *),
+ 			    int (*set)(struct super_block *, struct fs_context *));
++struct super_block *sget(struct file_system_type *type,
++			int (*test)(struct super_block *,void *),
++			int (*set)(struct super_block *,void *),
++			int flags, void *data);
+ struct super_block *sget_dev(struct fs_context *fc, dev_t dev);
+ 
+ /* Alas, no aliases. Too much hassle with bringing module.h everywhere */
+-- 
+2.55.0
+
