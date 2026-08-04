@@ -1,33 +1,41 @@
-From 65e08652ad8bfc3bd013bc9fdc5c2756e9fc427c Mon Sep 17 00:00:00 2001
+From dbfcd8ecfd4b2db7f278f3ab4d3070ea060a3d81 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
 
 Signed-off-by: Xarblu <xarblu@protonmail.com>
 ---
- fs/bcachefs/Makefile         |  4 +---
+ fs/bcachefs/Makefile         | 12 ++----------
  fs/bcachefs/module-version.c | 11 +++++++++++
- 2 files changed, 12 insertions(+), 3 deletions(-)
+ 2 files changed, 13 insertions(+), 10 deletions(-)
  create mode 100644 fs/bcachefs/module-version.c
 
 diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
-index 061315e..1a70530 100644
+index 06ccada90400..a65800bf632b 100644
 --- a/fs/bcachefs/Makefile
 +++ b/fs/bcachefs/Makefile
-@@ -199,9 +199,7 @@ ifndef BCACHEFS_DKMS
+@@ -219,16 +219,8 @@ ifndef BCACHEFS_DKMS
  	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
  endif
  
 -ifdef BCACHEFS_DKMS
+-ifneq ($(wildcard $(src)/module-version.c),)
 -	bcachefs-y += module-version.o
+-else
+-# Staged by bcachefs-tools 'make install_dkms'; a hand-copied kernel
+-# fs/bcachefs/ tree lacks it. Degrade rather than fail with a bare
+-# "no rule to make target" (field report: CRCinAU, 2026-07-23).
+-$(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
 -endif
+-endif
++# made unconditional for patch
 +bcachefs-y += module-version.o
  
  # Rust support — optional, gated on CONFIG_RUST. The C side owns the module
  # entry points; mod.o is a member object compiled by the kernel's Rust rules
 diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
 new file mode 100644
-index 0000000..4cda911
+index 000000000000..4cda91103707
 --- /dev/null
 +++ b/fs/bcachefs/module-version.c
 @@ -0,0 +1,11 @@
@@ -43,5 +51,5 @@ index 0000000..4cda911
 +
 +MODULE_VERSION("%%VERSION_STRING%%");
 -- 
-2.54.0
+2.55.0
 
