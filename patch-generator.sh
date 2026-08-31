@@ -2,20 +2,18 @@
 
 # Script to generate a patch
 #
-# Assumptions:
-# - You are inside a linux source directory
-# - The repository has 2 remotes:
-#   - origin -> git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
-#   - bcachefs -> git://evilpiepirate.org/bcachefs.git
+# Usage (at repo root):
+#   # Latest tagged release, written to "patches" directory
+#   ./patch-generator.sh -o patches
+#
+#   # Latest master snapshot, written to "snapshots" directory
+#   ./patch-generator.sh -o patches -s origin/master
+
 
 # shellcheck disable=SC2155
 declare -g SCRIPT_DIR="$(readlink -e "${BASH_SOURCE[0]%/*}")" 
 
 # git repos and remotes used
-declare -g LINUX_REPO="${SCRIPT_DIR}/../linux"
-declare -g LINUX_REMOTE='origin'
-declare -g LINUX_BCACHEFS_REMOTE='bcachefs'
-
 declare -g BCACHEFS_TOOLS_REPO="${SCRIPT_DIR}/../bcachefs-tools"
 declare -g BCACHEFS_TOOLS_REMOTE='origin'
 
@@ -56,7 +54,6 @@ function usage() {
     log '                If file (.patch extension) this exact file is used'
     log '                If directory (must exist) auto generate a patch'
     log '                If not given auto generates file in current directory'
-    log '  -t|--tag      Linux tag to base patch on. Latest if unset.'
     log '  -s|--snapshot bcachefs-tools snapshot (commit) to use instead of last tagged release.'
     log '  -n|--no-glue  Dont append any glue patches - just create the base bcachefs patch.'
     log "                NOTE: This patch won't work on its own and is mainly intended as a clean base for rebasing glue patches."
@@ -66,7 +63,6 @@ function usage() {
 function parse_args() {
     # defaults / unset to prevent leakage from env
     unset OUT_FILE
-    unset TAG
     unset SNAPSHOT
     GLUE=1
 
@@ -79,14 +75,6 @@ function parse_args() {
                 fi
                 shift
                 OUT_FILE="${1}"
-                ;;
-            -t|--tag)
-                if (( ${#} < 2 )); then
-                    log 'Expected argument after %s' "${1}"
-                    exit 1
-                fi
-                shift
-                TAG="${1}"
                 ;;
             -s|--snapshot)
                 if (( ${#} < 2 )); then
@@ -189,14 +177,12 @@ function detect_bch_version() {
     popd >/dev/null || exit 1
 }
 
-# generate output file name
-# returned in REPLY
+# expand OUT_FILE
 function generate_out_file() {
     local bcachefs_tag="${1}"
-    local linux_tag="${2}"
 
     if [[ "${OUT_FILE}" == *.patch ]]; then
-        REPLY="$(readlink -m "${OUT_FILE}")"
+        OUT_FILE="$(readlink -m "${OUT_FILE}")"
         return 0
     fi
 
@@ -205,7 +191,7 @@ function generate_out_file() {
     fi
 
     if [[ -d "${OUT_FILE}" ]]; then
-        OUT_FILE="${OUT_FILE%/}/bcachefs-${bcachefs_tag}-for-${linux_tag%-rc*}.patch"
+        OUT_FILE="${OUT_FILE%/}/bcachefs-${bcachefs_tag}.patch"
     else
         log 'Output %s does not end with .patch and is not an existing directory' \
             "${OUT_FILE}"
@@ -216,7 +202,7 @@ function generate_out_file() {
         OUT_FILE="${OUT_FILE%.patch}-no-glue.patch"
     fi
 
-    REPLY="$(readlink -m "${OUT_FILE}")"
+    OUT_FILE="$(readlink -m "${OUT_FILE}")"
 }
 
 # detect latest stable bcachefs revision
@@ -286,68 +272,31 @@ function update_bcachefs_tools() {
     popd >/dev/null || exit 1
 }
 
-# update linux source tree and return latest tag in REPLY
-function update_linux() {
-    log 'Preparing linux source tree'
-
-    if ! pushd "${LINUX_REPO}" >/dev/null; then
-        log 'Failed to cd into linux source tree: %s' "${LINUX_REPO}"
-        exit 1
-    fi
-
-    check_remotes "${LINUX_REMOTE}" "${LINUX_BCACHEFS_REMOTE}"
-
-    log 'Updates Linux source trees (git fetch)'
-    git fetch "${LINUX_REMOTE}"
-    git fetch "${LINUX_BCACHEFS_REMOTE}"
-
-    local tag
-    if [[ -n "${TAG}" ]]; then
-        tag="${TAG}"
-        if ! git show "${tag}" &>/dev/null; then
-            log 'Specified tag does not exist: %s' "${tag}"
-            exit 1
-        fi
-        log 'Using specified tag: %s' "${tag}"
-    else
-        last_tag "${LINUX_REMOTE}/master"
-        tag="${REPLY}"
-        log 'Detected last tag: %s' "${tag}"
-    fi
-
-    REPLY="${tag}"
-
-    popd >/dev/null || exit 1
-}
-
 # write glue patch for KConfig and Makefile
 # to stdout
 # required for 6.18+ due to upstream removal
 function glue_patch() {
-    local linux_tag="${1}"
-    local bcachefs_tag="${2}"
+    if (( ! GLUE )); then
+        log 'Skipping glue patch(es) (--no-glue)'
+        return 0
+    fi
 
-    local -a glue
-    case "${linux_tag}" in
-        v6.17*) ;;
-        v6.1[8-9]*|v7.[0-3]*)
-            local dir="${linux_tag}"
-            dir="${dir%-rc*}"
-            dir="${dir#v}"
+    local bcachefs_tag="${1}"
+    local glue_dir="${OUT_FILE%/*}/glue"
 
-            glue+=(
-                "${SCRIPT_DIR}/${dir}/glue/bcachefs-kconf.patch"
-            )
+    if [[ ! -d "${glue_dir}" ]]; then
+        die 'Output directory has no glue subdirectory but one is expected at: %s' "${glue_dir}"
+    fi
 
-            if [[ -d "${SCRIPT_DIR}/${dir}/glue/${bcachefs_tag}/" ]]; then
-                glue+=( "${SCRIPT_DIR}/${dir}/glue/${bcachefs_tag}/"*.patch )
-            fi
-            ;;
-        *)
-            log 'Unknown Linux tag: %s' "${linux_tag}"
-            return 1
-            ;;
-    esac
+    # kconf is always expected/required,
+    # others are version dependent
+    local -a glue=(
+        "${glue_dir}/bcachefs-kconf.patch"
+    )
+
+    if [[ -d "${glue_dir}/${bcachefs_tag}/" ]]; then
+        glue+=( "${glue_dir}/${bcachefs_tag}/"*.patch )
+    fi
 
     local f
     for f in "${glue[@]}"; do
@@ -362,13 +311,13 @@ function glue_patch() {
 }
 
 function module_version_patch() {
-    local linux_tag="${1}"
-    linux_tag="${linux_tag#v}"
-    linux_tag="${linux_tag%-rc*}"
+    if (( ! GLUE )); then
+        log 'Skipping module version patch (--no-glue)'
+        return 0
+    fi
 
-    local version_string="${2}"
-
-    local module_version_patch="${SCRIPT_DIR}/${linux_tag}/glue/bcachefs-module-version.patch"
+    local version_string="${1}"
+    local module_version_patch="${OUT_FILE%/*}/glue/bcachefs-module-version.patch"
 
     if [[ ! -f "${module_version_patch}" ]]; then
         log 'Module version patch does not exist: %s' "${module_version_patch}"
@@ -423,23 +372,19 @@ function bcachefs_patch_from_tools_rev() {
 function main() {
     parse_args "${@}"
 
-    update_linux
-    local linux_tag="${REPLY}"
-
     local bcachefs_tag bcachefs_tools_commit bcachefs_version_string
     update_bcachefs_tools
     IFS=':' read -r bcachefs_tag bcachefs_tools_commit bcachefs_version_string <<<"${REPLY}"
-    generate_out_file "${bcachefs_tag}" "${linux_tag}"
-    local file="${REPLY}"
+    generate_out_file "${bcachefs_tag}"
 
     log 'About to create patch for: %s (bachefs-tools %s)' \
         "${bcachefs_version_string}" \
         "${bcachefs_tools_commit}"
 
-    if confirm "Write patch to ${file}?"; then
-        bcachefs_patch_from_tools_rev "${bcachefs_tools_commit}" "${file}"
-        ((GLUE)) && glue_patch "${linux_tag}" "${bcachefs_tag}" >> "${file}"
-        ((GLUE)) && module_version_patch "${linux_tag}" "${bcachefs_version_string}" >> "${file}"
+    if confirm "Write patch to ${OUT_FILE}?"; then
+        bcachefs_patch_from_tools_rev "${bcachefs_tools_commit}" "${OUT_FILE}"
+        glue_patch "${bcachefs_tag}" >> "${OUT_FILE}"
+        module_version_patch "${bcachefs_version_string}" >> "${OUT_FILE}"
         return 0
     fi
     
