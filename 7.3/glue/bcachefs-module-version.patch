@@ -1,0 +1,55 @@
+From 28e058bc0c8a7f5c864e8a4be1b618e90c3a1714 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 23 Feb 2026 19:28:06 +0100
+Subject: [PATCH] bcachefs: unconditional module version
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/Makefile         | 12 ++----------
+ fs/bcachefs/module-version.c | 11 +++++++++++
+ 2 files changed, 13 insertions(+), 10 deletions(-)
+ create mode 100644 fs/bcachefs/module-version.c
+
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index 273524bf0d4e..a6707da115ea 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -230,16 +230,8 @@ ifndef BCACHEFS_DKMS
+ 	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
+ endif
+ 
+-ifdef BCACHEFS_DKMS
+-ifneq ($(wildcard $(src)/module-version.c),)
+-	bcachefs-y += module-version.o
+-else
+-# Staged by bcachefs-tools 'make install_dkms'; a hand-copied kernel
+-# fs/bcachefs/ tree lacks it. Degrade rather than fail with a bare
+-# "no rule to make target" (field report: CRCinAU, 2026-07-23).
+-$(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
+-endif
+-endif
++# made unconditional for patch
++bcachefs-y += module-version.o
+ 
+ # Rust support — optional, gated on CONFIG_RUST. The C side owns the module
+ # entry points; mod.o is a member object compiled by the kernel's Rust rules
+diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
+new file mode 100644
+index 000000000000..4cda91103707
+--- /dev/null
++++ b/fs/bcachefs/module-version.c
+@@ -0,0 +1,11 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * bcachefs module version information.
++ *
++ * Copyright 2010, 2011 Kent Overstreet <kent.overstreet@gmail.com>
++ * Copyright 2012 Google, Inc.
++ */
++
++#include <linux/module.h>
++
++MODULE_VERSION("%%VERSION_STRING%%");
+-- 
+2.55.0
+
