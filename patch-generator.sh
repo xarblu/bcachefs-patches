@@ -153,24 +153,30 @@ function commit_date() {
 function detect_bch_version() {
     local rev="${1}"
 
-    local parser bch_version
-
-    parser="${SCRIPT_DIR}/parse_bch_version.pl"
-    if [[ ! -x "${parser}" ]]; then
-        log 'Parser script does not exist at %s or is not executable' "${parser}"
-        exit 1
-    fi
-
     if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
         log 'Failed to cd into bcachefs-tools tree: %s' "${BCACHEFS_TOOLS_REPO}"
         exit 1
     fi
 
-    local fmt_h="fs/bcachefs_format.h"
-    if ! bch_version="$(git cat-file -p "${rev}:${fmt_h}" | "${parser}")"; then
-        log 'Failed to parse bcachefs version from %s' "${fmt_h}"
-        exit 1
-    fi
+    local -a candidates=( "fs/bcachefs_format_types.rs" "fs/bcachefs_format.h" )
+    local file content line
+
+    local bch_version=''
+    local re_bch_version='BCH_VERSION\(([[:digit:]]+),[[:space:]]+([[:digit:]]+)\)'
+
+    for file in "${candidates[@]}"; do
+        log 'Trying to parse BCH_VERSION from %s' "${file}"
+
+        mapfile -t content < <(git cat-file -p "${rev}:${file}")
+
+        for line in "${content[@]}"; do
+            [[ "${line}" =~ ${re_bch_version} ]] || continue
+            bch_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+        done
+
+        # first file that parses it wins
+        [[ -z "${bch_version}" ]] || break
+    done
 
     REPLY="${bch_version}"
 
