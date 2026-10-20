@@ -1,6 +1,6 @@
-From b7a88b2f24ea641dc4f17cb3870cb70b0a3d92db Mon Sep 17 00:00:00 2001
+From 911364181ef4a9c8d1300a57fb5d87c6112d672f Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
-Date: Tue, 20 Oct 2026 21:23:26 +0200
+Date: Sun, 4 Oct 2026 23:17:36 +0200
 Subject: [PATCH] bcachefs-tools 1098e5d778ef5c0be68f4350aa1c032a88668723
 
 ---
@@ -328053,7 +328053,7 @@ index 0000000..9962224
 -- 
 2.56.0
 
-From 7aa412d5f1c23b0345b75cb3ccfad7cc18e7138e Mon Sep 17 00:00:00 2001
+From d8c63c50e82b97e58436bb67f8c82585f6b82e05 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:22:56 +0100
 Subject: [PATCH] bcachefs: add to Kconfig
@@ -328065,7 +328065,7 @@ Signed-off-by: Xarblu <xarblu@protonmail.com>
  2 files changed, 2 insertions(+)
 
 diff --git a/fs/Kconfig b/fs/Kconfig
-index e05917adcd60..d97ce6efcb44 100644
+index cf6ae64776e6..6e2428e1938b 100644
 --- a/fs/Kconfig
 +++ b/fs/Kconfig
 @@ -51,6 +51,7 @@ source "fs/ocfs2/Kconfig"
@@ -328077,10 +328077,10 @@ index e05917adcd60..d97ce6efcb44 100644
  
  endif # BLOCK
 diff --git a/fs/Makefile b/fs/Makefile
-index 055dfc23d82b..67f2a5b1718d 100644
+index 89a8a9d207d1..c3057ca4cc5d 100644
 --- a/fs/Makefile
 +++ b/fs/Makefile
-@@ -120,6 +120,7 @@ obj-$(CONFIG_OCFS2_FS)		+= ocfs2/
+@@ -121,6 +121,7 @@ obj-$(CONFIG_OCFS2_FS)		+= ocfs2/
  obj-$(CONFIG_BTRFS_FS)		+= btrfs/
  obj-$(CONFIG_GFS2_FS)           += gfs2/
  obj-$(CONFIG_F2FS_FS)		+= f2fs/
@@ -328089,32 +328089,43 @@ index 055dfc23d82b..67f2a5b1718d 100644
  obj-$(CONFIG_PSTORE)		+= pstore/
  obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
 -- 
-2.56.0
+2.55.0
 
-From 4ac39a858f915acc97d6a0a497b519013f65523c Mon Sep 17 00:00:00 2001
+From dbfcd8ecfd4b2db7f278f3ab4d3070ea060a3d81 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
 
 Signed-off-by: Xarblu <xarblu@protonmail.com>
 ---
- fs/bcachefs/Makefile         |  1 +
+ fs/bcachefs/Makefile         | 12 ++----------
  fs/bcachefs/module-version.c | 11 +++++++++++
- 2 files changed, 12 insertions(+)
+ 2 files changed, 13 insertions(+), 10 deletions(-)
  create mode 100644 fs/bcachefs/module-version.c
 
 diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
-index fac7121c6527..4d7dcd6e5249 100644
+index 06ccada90400..a65800bf632b 100644
 --- a/fs/bcachefs/Makefile
 +++ b/fs/bcachefs/Makefile
-@@ -185,6 +185,7 @@ else
- $(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
- endif
- else
-+	bcachefs-y += module-version.o
+@@ -219,16 +219,8 @@ ifndef BCACHEFS_DKMS
  	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
  endif
  
+-ifdef BCACHEFS_DKMS
+-ifneq ($(wildcard $(src)/module-version.c),)
+-	bcachefs-y += module-version.o
+-else
+-# Staged by bcachefs-tools 'make install_dkms'; a hand-copied kernel
+-# fs/bcachefs/ tree lacks it. Degrade rather than fail with a bare
+-# "no rule to make target" (field report: CRCinAU, 2026-07-23).
+-$(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
+-endif
+-endif
++# made unconditional for patch
++bcachefs-y += module-version.o
+ 
+ # Rust support — optional, gated on CONFIG_RUST. The C side owns the module
+ # entry points; mod.o is a member object compiled by the kernel's Rust rules
 diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
 new file mode 100644
 index 000000000000..4cda91103707
@@ -328133,5 +328144,5 @@ index 000000000000..4cda91103707
 +
 +MODULE_VERSION("v1.39.7");
 -- 
-2.56.0
+2.55.0
 
