@@ -27,10 +27,10 @@ Co-Authored-By: Proof of Concept <poc@bcachefs.org>
  fs/types/main.rs | 25 ++++++++++++++++++-------
  2 files changed, 22 insertions(+), 9 deletions(-)
 
-diff --git fs/bcachefs/Makefile.rust fs/bcachefs/Makefile.rust
+diff --git a/fs/bcachefs/Makefile.rust b/fs/bcachefs/Makefile.rust
 index 53b965688..e254e09ba 100644
---- fs/bcachefs/Makefile.rust
-+++ fs/bcachefs/Makefile.rust
+--- a/fs/bcachefs/Makefile.rust
++++ b/fs/bcachefs/Makefile.rust
 @@ -385,14 +385,16 @@ targets += $(bch-rust-gc-in)
  # bindings it's built from can't - they come first.
  #
@@ -50,10 +50,10 @@ index 53b965688..e254e09ba 100644
  	touch $@
  
  $(obj)/rust/cstruct.stamp: $(obj)/mod.o $(obj)/rust_types_gen FORCE
-diff --git fs/bcachefs/types/main.rs fs/bcachefs/types/main.rs
+diff --git a/fs/bcachefs/types/main.rs b/fs/bcachefs/types/main.rs
 index 0b9980fe5..629c416a8 100644
---- fs/bcachefs/types/main.rs
-+++ fs/bcachefs/types/main.rs
+--- a/fs/bcachefs/types/main.rs
++++ b/fs/bcachefs/types/main.rs
 @@ -2,7 +2,7 @@
  
  //! rust_types_gen: writes the C of the types defined in Rust that C shares.
