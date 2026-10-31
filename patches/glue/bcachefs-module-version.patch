@@ -1,27 +1,35 @@
-From 4ac39a858f915acc97d6a0a497b519013f65523c Mon Sep 17 00:00:00 2001
+From 119f521fcee6c22f7c01a4c4b6536732a32de238 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
 
 Signed-off-by: Xarblu <xarblu@protonmail.com>
 ---
- fs/bcachefs/Makefile         |  1 +
+ fs/bcachefs/Makefile         |  2 --
  fs/bcachefs/module-version.c | 11 +++++++++++
- 2 files changed, 12 insertions(+)
+ 2 files changed, 11 insertions(+), 2 deletions(-)
  create mode 100644 fs/bcachefs/module-version.c
 
 diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
-index fac7121c6527..4d7dcd6e5249 100644
+index c969dc1c6977..04501041edd1 100644
 --- a/fs/bcachefs/Makefile
 +++ b/fs/bcachefs/Makefile
-@@ -185,6 +185,7 @@ else
+@@ -122,7 +122,6 @@ bcachefs-y		:=			\
+ 	vfs/direct.o				\
+ 	vfs/pagecache.o
+ 
+-ifdef BCACHEFS_DKMS
+ ifneq ($(wildcard $(src)/module-version.c),)
+ 	bcachefs-y += module-version.o
+ else
+@@ -130,7 +129,6 @@ else
+ # with "no rule to make target".
  $(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
  endif
- else
-+	bcachefs-y += module-version.o
- 	obj-$(CONFIG_MEAN_AND_VARIANCE_UNIT_TEST)   += util/mean_and_variance_test.o
- endif
+-endif
  
+ # A prebuilt module builds nothing, so none of Rust's requirements apply - its
+ # checks fail the build on a kernel that can't build our Rust (#1133).
 diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
 new file mode 100644
 index 000000000000..4cda91103707
