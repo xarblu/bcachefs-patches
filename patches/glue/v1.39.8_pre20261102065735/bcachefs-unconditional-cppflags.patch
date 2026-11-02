@@ -1,0 +1,33 @@
+From 817109ae2594d800b90d0dc1a21144a87ecf7a45 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Mon, 2 Nov 2026 23:31:20 +0100
+Subject: [PATCH] bcachefs: unconditional cppflags
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index d481ae9604ad..89dfaeab828f 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -21,6 +21,7 @@ else
+ $(warning bcachefs: no version in $(src)/version.h - not looking for a prebuilt module (version.h is staged by bcachefs-tools 'make install_dkms'; a hand-copied kernel fs/bcachefs/ tree lacks it))
+ endif
+ endif
++endif
+ 
+ # Our options: from the environment (ktest, build.vars), and quota as Kconfig
+ # defaults it, with CONFIG_QUOTA.
+@@ -28,7 +29,6 @@ bcachefs-config-cppflags := \
+ 	$(foreach o,DEBUG INJECT_TRANSACTION_RESTARTS TESTS,$(if $(BCACHEFS_$(o)),-DCONFIG_BCACHEFS_$(o)=1)) \
+ 	$(if $(CONFIG_QUOTA),-DCONFIG_BCACHEFS_QUOTA=1) \
+ 	$(if $(CONFIG_DEBUG_FS),-DCONFIG_BCACHEFS_ASYNC_OBJECT_LISTS=1)
+-endif
+ 
+ # bindgen and rustc get these too (Makefile.rust): some change struct layouts
+ # (CONFIG_BCACHEFS_DEBUG adds btree_iter.ip_allocated), and C and Rust
+-- 
+2.56.0
+
