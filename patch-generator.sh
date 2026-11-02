@@ -158,14 +158,17 @@ function detect_bch_version() {
         exit 1
     fi
 
-    local -a candidates=( "fs/bcachefs_format_types.rs" "fs/bcachefs_format.h" )
+    local -a candidates=( fs/format.rs fs/bcachefs_format_types.rs fs/bcachefs_format.h )
     local file content line
 
-    local bch_version=''
+    local bch_version
     local re_bch_version='BCH_VERSION\(([[:digit:]]+),[[:space:]]+([[:digit:]]+)\)'
+    local re_version='^[[:digit:]]+\.[[:digit:]]+$'
 
     for file in "${candidates[@]}"; do
         log 'Trying to parse BCH_VERSION from %s' "${file}"
+
+        bch_version=''
 
         mapfile -t content < <(git cat-file -p "${rev}:${file}")
 
@@ -174,9 +177,14 @@ function detect_bch_version() {
             bch_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
         done
 
+        # sanity check we parsed a full version
+        [[ "${bch_version}" =~ ${re_version} ]] || continue
+
         # first file that parses it wins
         [[ -z "${bch_version}" ]] || break
     done
+
+    [[ -n "${bch_version}" ]] || die "Failed to parse BCH_VERSION"
 
     REPLY="${bch_version}"
 
