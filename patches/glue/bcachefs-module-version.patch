@@ -1,4 +1,4 @@
-From 119f521fcee6c22f7c01a4c4b6536732a32de238 Mon Sep 17 00:00:00 2001
+From 359d48dbf8acd1fffc57332f0c895cca91285e7e Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
@@ -11,18 +11,18 @@ Signed-off-by: Xarblu <xarblu@protonmail.com>
  create mode 100644 fs/bcachefs/module-version.c
 
 diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
-index c969dc1c6977..04501041edd1 100644
+index 70f50cfad7d6..fbdb119fe48a 100644
 --- a/fs/bcachefs/Makefile
 +++ b/fs/bcachefs/Makefile
-@@ -122,7 +122,6 @@ bcachefs-y		:=			\
- 	vfs/direct.o				\
- 	vfs/pagecache.o
+@@ -106,7 +106,6 @@ bcachefs-y		:=			\
+ 	vfs/buffered.o				\
+ 	vfs/direct.o
  
--ifdef BCACHEFS_DKMS
+-ifdef KBUILD_EXTMOD
  ifneq ($(wildcard $(src)/module-version.c),)
  	bcachefs-y += module-version.o
  else
-@@ -130,7 +129,6 @@ else
+@@ -114,7 +113,6 @@ else
  # with "no rule to make target".
  $(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
  endif

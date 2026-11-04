@@ -1,4 +1,4 @@
-From 0d8e04c334ebaa2f4cd15aff035d17edce9ee263 Mon Sep 17 00:00:00 2001
+From e0a8af7a42aa699cdce8cc2b5394301b85bd5ba8 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:22:56 +0100
 Subject: [PATCH] bcachefs: add to Kconfig
