@@ -1,4 +1,4 @@
-From 359d48dbf8acd1fffc57332f0c895cca91285e7e Mon Sep 17 00:00:00 2001
+From e3657bcaadae02c208d887bc1b6557e96b8207af Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
@@ -11,10 +11,10 @@ Signed-off-by: Xarblu <xarblu@protonmail.com>
  create mode 100644 fs/bcachefs/module-version.c
 
 diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
-index 70f50cfad7d6..fbdb119fe48a 100644
+index aeaf133f1c50..2d214c1c1148 100644
 --- a/fs/bcachefs/Makefile
 +++ b/fs/bcachefs/Makefile
-@@ -106,7 +106,6 @@ bcachefs-y		:=			\
+@@ -101,7 +101,6 @@ bcachefs-y		:=			\
  	vfs/buffered.o				\
  	vfs/direct.o
  
@@ -22,7 +22,7 @@ index 70f50cfad7d6..fbdb119fe48a 100644
  ifneq ($(wildcard $(src)/module-version.c),)
  	bcachefs-y += module-version.o
  else
-@@ -114,7 +113,6 @@ else
+@@ -109,7 +108,6 @@ else
  # with "no rule to make target".
  $(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
  endif
@@ -32,7 +32,7 @@ index 70f50cfad7d6..fbdb119fe48a 100644
  # checks fail the build on a kernel that can't build our Rust (#1133).
 diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
 new file mode 100644
-index 000000000000..4cda91103707
+index 000000000000..a6cba54b57b9
 --- /dev/null
 +++ b/fs/bcachefs/module-version.c
 @@ -0,0 +1,11 @@
