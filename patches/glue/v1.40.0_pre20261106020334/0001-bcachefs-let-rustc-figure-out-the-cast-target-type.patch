@@ -1,0 +1,26 @@
+From cd74f9b494a9a4046858b58178b0c8a3a9822d02 Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Fri, 6 Nov 2026 21:12:37 +0100
+Subject: [PATCH] bcachefs: let rustc figure out the cast target type
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ fs/bcachefs/data/checksum.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/bcachefs/data/checksum.rs b/fs/bcachefs/data/checksum.rs
+index 236b431b2d01..4b0705c11b7c 100644
+--- a/fs/bcachefs/data/checksum.rs
++++ b/fs/bcachefs/data/checksum.rs
+@@ -141,7 +141,7 @@ unsafe fn update_raw(&mut self, p: *const u8, len: usize) {
+                 Csum::Crc32c { seed, .. } => *seed = c::crc32c(*seed as u32, p.cast(), len).into(),
+                 Csum::Crc64 { seed, .. } => *seed = c::crc64_be(*seed, p.cast(), len),
+                 Csum::Xxhash(s) => { c::xxh64_update(s, p.cast(), len); }
+-                Csum::Poly1305(ctx, _) => c::poly1305_update(ctx, p, len as c_uint),
++                Csum::Poly1305(ctx, _) => c::poly1305_update(ctx, p, len as _),
+             }
+         }
+     }
+-- 
+2.56.0
+
