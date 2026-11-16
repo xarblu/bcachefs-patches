@@ -219,6 +219,13 @@ function generate_out_file() {
     OUT_FILE="$(readlink -m "${OUT_FILE}")"
 }
 
+function bch_version_string() {
+    local rev="${1}"
+    pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null || die "Failed to cd into bcachefs-tools source tree"
+    git -c safe.directory="${PWD}" -c core.abbrev=12 describe "${rev}" || die "Failed to generate version for rev ${rev}"
+    popd >/dev/null || die "Failed to restore dir"
+}
+
 # detect latest stable bcachefs revision
 # based on bcachefs-tools tagged release
 # result in REPLY as tag:commit:
@@ -248,10 +255,7 @@ function update_bcachefs_tools() {
     fi
 
     local version_string
-    if ! version_string="$(git -c safe.directory="${PWD}" -c core.abbrev=12 describe "${bch_tools_rev}")"; then
-        log 'Failed to generate version string from bcachefs-tools'
-        exit 1
-    fi
+    version_string="${ bch_version_string "${bch_tools_rev}"; }"
     log 'Generated module version string: %s' "${version_string}"
 
     # tag used to name the patch file
@@ -347,6 +351,21 @@ function bcachefs_patch_from_tools_rev() {
     local dest="${2}"
     local staging
 
+    local include=(
+        fs
+        os/linux_kernel
+        os/alloc.rs
+        os/debugfs.rs
+        os/kernel.rs
+        os/rcu.rs
+        os/sysfs.rs
+    )
+
+    local transforms=(
+        --transform='s|^fs|fs/bcachefs|'
+        --transform='s|^os|fs/os|'
+    )
+
     # preperation
     staging="$(mktemp -d)" || die "Failed to create staging dir ${staging}"
 
@@ -359,7 +378,7 @@ function bcachefs_patch_from_tools_rev() {
 
     # fetch bcachefs files from bcachefs-tools
     # and transform them to linux source tree structure on the fly
-    if ! git archive "${rev}" | tar -x --transform='s|^fs|fs/bcachefs|' -C "${staging}" fs; then
+    if ! git archive "${rev}" | tar -C "${staging}" -x "${transforms[@]}" "${include[@]}"; then
         die "Failed to snapshot bcachefs-tools repo into ${staging}"
     fi
 
@@ -370,7 +389,7 @@ function bcachefs_patch_from_tools_rev() {
 
     git init || die "git init failed"
     git add . || die "git add failed"
-    git commit --no-gpg-sign -m "bcachefs-tools ${rev}" || die "git commit failed"
+    git commit --no-gpg-sign -m "bcachefs-tools ${ bch_version_string "${rev}"; }" || die "git commit failed"
     git format-patch --stdout --root > "${dest}" || die "failed to write patch file"
 
     popd >/dev/null || die "popd failed"

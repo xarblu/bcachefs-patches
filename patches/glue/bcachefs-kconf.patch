@@ -1,4 +1,4 @@
-From 4706fa0d6b7bcbe819bcce09dca83dd79e1439ed Mon Sep 17 00:00:00 2001
+From 8d096473cfdd8c9e46a5885ecbe63eea6a00d96b Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:22:56 +0100
 Subject: [PATCH] bcachefs: add to Kconfig
@@ -34,5 +34,5 @@ index 16f1108b64e1..705fbc1de565 100644
  obj-$(CONFIG_PSTORE)		+= pstore/
  obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
 -- 
-2.56.0
+2.56.1
 
