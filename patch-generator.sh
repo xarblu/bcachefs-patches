@@ -357,8 +357,10 @@ function bcachefs_patch_from_tools_rev() {
         os/alloc.rs
         os/debugfs.rs
         os/kernel.rs
+        os/posix_acl.rs
         os/rcu.rs
         os/sysfs.rs
+        os/vfs_inode.rs
     )
 
     local transforms=(
