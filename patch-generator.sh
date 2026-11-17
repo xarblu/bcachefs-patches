@@ -355,8 +355,13 @@ function bcachefs_patch_from_tools_rev() {
         fs
         os/linux_kernel
         os/alloc.rs
+        os/checksum.rs
         os/debugfs.rs
+        os/jump_label.rs
         os/kernel.rs
+        os/kobject.rs
+        os/module.rs
+        os/module_param.rs
         os/posix_acl.rs
         os/rcu.rs
         os/sysfs.rs
