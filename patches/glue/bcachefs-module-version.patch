@@ -1,19 +1,19 @@
-From 300b7b5b767e658c1eeb38fc44903bfd0ec479c6 Mon Sep 17 00:00:00 2001
+From 9a166237cf4aef07ae7ca80e9ecacfd95bbc5495 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
 
 Signed-off-by: Xarblu <xarblu@protonmail.com>
 ---
- fs/bcachefs/Makefile         |  2 --
- fs/bcachefs/module-version.c | 11 +++++++++++
+ fs/bcachefs/fs/Makefile         |  2 --
+ fs/bcachefs/fs/module-version.c | 11 +++++++++++
  2 files changed, 11 insertions(+), 2 deletions(-)
- create mode 100644 fs/bcachefs/module-version.c
+ create mode 100644 fs/bcachefs/fs/module-version.c
 
-diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+diff --git a/fs/bcachefs/fs/Makefile b/fs/bcachefs/fs/Makefile
 index 47a368c38b5c..2ef05f49e9d0 100644
---- a/fs/bcachefs/Makefile
-+++ b/fs/bcachefs/Makefile
+--- a/fs/bcachefs/fs/Makefile
++++ b/fs/bcachefs/fs/Makefile
 @@ -59,7 +59,6 @@ bcachefs-y		:=			\
  	../os/linux_kernel/bio_iov_iter.o	\
  	../os/linux_kernel/shim.o
@@ -30,11 +30,11 @@ index 47a368c38b5c..2ef05f49e9d0 100644
  
  # A prebuilt module builds nothing, so none of Rust's requirements apply - its
  # checks fail the build on a kernel that can't build our Rust (#1133).
-diff --git a/fs/bcachefs/module-version.c b/fs/bcachefs/module-version.c
+diff --git a/fs/bcachefs/fs/module-version.c b/fs/bcachefs/fs/module-version.c
 new file mode 100644
-index 000000000000..4cda91103707
+index 000000000000..022ad94e90c6
 --- /dev/null
-+++ b/fs/bcachefs/module-version.c
++++ b/fs/bcachefs/fs/module-version.c
 @@ -0,0 +1,11 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
