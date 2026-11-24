@@ -353,8 +353,11 @@ function bcachefs_patch_from_tools_rev() {
 
     local include=(
         fs
-        os/linux_kernel
-        ':(glob)os/*.rs'
+        os
+    )
+
+    local exclude=(
+        os/linux_user
     )
 
     # preperation
@@ -369,7 +372,7 @@ function bcachefs_patch_from_tools_rev() {
 
     # fetch bcachefs files from bcachefs-tools
     # and transform them to linux source tree structure on the fly
-    if ! git archive --prefix=fs/bcachefs/ "${rev}" "${include[@]}" | tar -C "${staging}" -x -f -; then
+    if ! git archive --prefix=fs/bcachefs/ "${rev}" "${include[@]}" | tar -C "${staging}" -x -f - "${exclude[@]/#/--exclude=}"; then
         die "Failed to snapshot bcachefs-tools repo into ${staging}"
     fi
 
