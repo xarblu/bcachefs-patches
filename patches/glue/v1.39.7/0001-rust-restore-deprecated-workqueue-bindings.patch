@@ -1,0 +1,52 @@
+From 9d98761d27afbac20fe0728c22e46cebca86457d Mon Sep 17 00:00:00 2001
+From: Xarblu <xarblu@protonmail.com>
+Date: Tue, 24 Nov 2026 16:51:19 +0100
+Subject: [PATCH] rust: restore deprecated workqueue bindings
+
+Signed-off-by: Xarblu <xarblu@protonmail.com>
+---
+ rust/kernel/workqueue.rs | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/rust/kernel/workqueue.rs b/rust/kernel/workqueue.rs
+index a872f9fffb90..cfee6a7414a5 100644
+--- a/rust/kernel/workqueue.rs
++++ b/rust/kernel/workqueue.rs
+@@ -1047,6 +1047,17 @@ pub fn system_dfl() -> &'static Queue {
+     unsafe { Queue::from_raw(bindings::system_dfl_wq) }
+ }
+ 
++/// Returns the system work queue (`system_wq`).
++///
++/// It is the one used by `schedule[_delayed]_work[_on]()`. Multi-CPU multi-threaded. There are
++/// users which expect relatively short queue flush time.
++///
++/// Callers shouldn't queue work items which can run for too long.
++pub fn system() -> &'static Queue {
++    // SAFETY: `system_wq` is a C global, always available.
++    unsafe { Queue::from_raw(bindings::system_wq) }
++}
++
+ /// Returns the system high-priority work queue (`system_highpri_wq`).
+ ///
+ /// It is similar to the one returned by [`system_percpu`] but for work items which require higher
+@@ -1065,6 +1076,16 @@ pub fn system_long() -> &'static Queue {
+     unsafe { Queue::from_raw(bindings::system_long_wq) }
+ }
+ 
++/// Returns the system unbound work queue (`system_unbound_wq`).
++///
++/// Workers are not bound to any specific CPU, not concurrency managed, and all queued work items
++/// are executed immediately as long as `max_active` limit is not reached and resources are
++/// available.
++pub fn system_unbound() -> &'static Queue {
++    // SAFETY: `system_unbound_wq` is a C global, always available.
++    unsafe { Queue::from_raw(bindings::system_unbound_wq) }
++}
++
+ /// Returns the system freezable work queue (`system_freezable_wq`).
+ ///
+ /// It is equivalent to the one returned by [`system_percpu`] except that it's freezable.
+-- 
+2.56.1
+
