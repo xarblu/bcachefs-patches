@@ -1,52 +1,28 @@
-From 31eed1dde0ff3e1ae373b9cff75b379754e8a2a8 Mon Sep 17 00:00:00 2001
+From 0baecebf8380c3c53a740d63c59242ffca5afb00 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
 
 Signed-off-by: Xarblu <xarblu@protonmail.com>
 ---
- fs/bcachefs/fs/Makefile         |  2 --
- fs/bcachefs/fs/module-version.c | 11 +++++++++++
- 2 files changed, 11 insertions(+), 2 deletions(-)
- create mode 100644 fs/bcachefs/fs/module-version.c
+ fs/bcachefs/fs/Makefile | 4 ++++
+ 1 file changed, 4 insertions(+)
 
 diff --git a/fs/bcachefs/fs/Makefile b/fs/bcachefs/fs/Makefile
-index 3d9e7b181ca5..1b9f6ce785a4 100644
+index 618dd3393cd5..5b1e8373e32f 100644
 --- a/fs/bcachefs/fs/Makefile
 +++ b/fs/bcachefs/fs/Makefile
-@@ -58,7 +58,6 @@ bcachefs-y		:=			\
- 	vendor/closure.o			\
- 	../os/linux_kernel/shim.o
- 
--ifdef KBUILD_EXTMOD
- ifneq ($(wildcard $(src)/module-version.c),)
- 	bcachefs-y += module-version.o
- else
-@@ -66,7 +65,6 @@ else
- # with "no rule to make target".
- $(warning bcachefs: $(src)/module-version.c missing - module will carry no MODULE_VERSION)
+@@ -29,6 +29,10 @@ endif
+ bcachefs-config-cppflags := \
+ 	$(foreach o,DEBUG INJECT_TRANSACTION_RESTARTS PATH_TRACEPOINTS TESTS,$(if $(BCACHEFS_$(o)),-DCONFIG_BCACHEFS_$(o)=1)) \
+ 	$(if $(CONFIG_QUOTA),-DCONFIG_BCACHEFS_QUOTA=1)
++else
++# The module's version, in its .modinfo: init/module.rs, embedded at patch creation time
++RUSTFLAGS_mod.o += --cfg bch_version
++export BCACHEFS_VERSION := %%BCACHEFS_VERSION_STRING%%
  endif
--endif
  
- # A prebuilt module builds nothing, so none of Rust's requirements apply - its
- # checks fail the build on a kernel that can't build our Rust (#1133).
-diff --git a/fs/bcachefs/fs/module-version.c b/fs/bcachefs/fs/module-version.c
-new file mode 100644
-index 000000000000..4cda91103707
---- /dev/null
-+++ b/fs/bcachefs/fs/module-version.c
-@@ -0,0 +1,11 @@
-+// SPDX-License-Identifier: GPL-2.0
-+/*
-+ * bcachefs module version information.
-+ *
-+ * Copyright 2010, 2011 Kent Overstreet <kent.overstreet@gmail.com>
-+ * Copyright 2012 Google, Inc.
-+ */
-+
-+#include <linux/module.h>
-+
-+MODULE_VERSION("%%VERSION_STRING%%");
+ # bindgen and rustc get these too (Makefile.rust): some change struct layouts
 -- 
 2.56.1
 

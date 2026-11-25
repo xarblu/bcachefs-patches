@@ -343,7 +343,72 @@ function module_version_patch() {
     fi
 
     log 'Appending module version patch with version: %s' "${version_string}"
-    perl -pe "s/%%VERSION_STRING%%/${version_string}/" "${module_version_patch}"
+    perl -pe "s/%%BCACHEFS_VERSION_STRING%%/${version_string}/" "${module_version_patch}"
+}
+
+# rough adaptation of dkms/install.rs' "fn crates()"
+# to resolve crates to vendor
+#
+# should be called from within the staging area's project root
+function vendor_rust_crates() {
+    local crates crate name src vendor dest
+
+    # shellcheck disable=SC2016
+    local -a jq_pipeline=(
+        '. as $root |'
+
+        # bcachefs-kernel crate metadata
+        '$root.packages[] | select(.name == "bcachefs-kernel") as $bcachefs_kernel |'
+
+        # crates wanted by kernel module
+        '$bcachefs_kernel.metadata.dkms.crates as $wanted |'
+
+        # dep ids required by bcachefs-kernel
+        '[$root.resolve.nodes[] | select(.id == $bcachefs_kernel.id) | .deps[].pkg] as $dep_ids |'
+
+        # crate metadata for all bcachefs-kernel deps
+        '[$root.packages[] | select(.id as $id | $dep_ids | any(. == $id))] as $deps |'
+
+        # crate metadata for all $wanted crated
+        '[$deps[] | select(.name as $name | $wanted | any(. == $name))] as $vendor |'
+
+        # the path for each crate to be vendored
+        '$vendor[] | {"name": .name, "dir": .manifest_path | rtrimstr("/Cargo.toml")}'
+    )
+
+    # sanity check we're in the correct directory
+    vendor="${PWD}/fs/vendor"
+    [[ -d "${vendor}" ]] || die "${vendor} does not exist. Wrong PWD?"
+
+    # fetch crates
+    log "Fetching crates for vendoring"
+    cargo fetch --locked || die "Failed to fetch crates"
+
+    # find crates to vendor
+    crates=$(
+        set -eo pipefail
+        cargo metadata --format-version 1 --locked | jq -c "${jq_pipeline[*]}"
+    ) || die "Could not get crates to vendor"
+
+    # rewrite as array
+    mapfile -t crates <<<"${crates}"
+
+    # copy crates
+    for crate in "${crates[@]}"; do
+        name=$(jq -r .name <<< "${crate}") || die "Could not parse crate: ${crate}"
+        src=$(jq -r .dir <<< "${crate}") || die "Could not parse crate: ${crate}"
+
+        dest="${vendor}/${name}"
+
+        log "Vendoring crate ${name@Q} from ${src@Q} to ${dest@Q}"
+
+        [[ ! -d "${dest}" ]] || die "Destination already exists in staging area"
+        mkdir "${dest}" || die "Could not create ${dest@Q}"
+
+        tar -C "${src}" -cf - --exclude-vcs --exclude-vcs-ignor . \
+            | tar -C "${dest}" -xf - \
+            || die "Could not copy files"
+    done
 }
 
 function bcachefs_patch_from_tools_rev() {
@@ -351,11 +416,16 @@ function bcachefs_patch_from_tools_rev() {
     local dest="${2}"
     local staging
 
+    # prefix where bcachefs will live in the kernel tree
+    local prefix="fs/bcachefs/"
+
+    # git pathspecs included in the patch
     local include=(
         fs
         os
     )
 
+    # git pathspecs to exclude from the include set above
     local exclude=(
         os/linux_user
     )
@@ -372,17 +442,22 @@ function bcachefs_patch_from_tools_rev() {
 
     # fetch bcachefs files from bcachefs-tools
     # and transform them to linux source tree structure on the fly
-    if ! git archive --prefix=fs/bcachefs/ "${rev}" "${include[@]}" | tar -C "${staging}" -x -f - "${exclude[@]/#/--exclude=}"; then
+    if ! git archive --prefix="${prefix}" "${rev}" | tar -C "${staging}" -x -f - ; then
         die "Failed to snapshot bcachefs-tools repo into ${staging}"
     fi
-
     popd >/dev/null || die "popd failed"
 
-    # create the actual patch
+    # perform any required modifications and commit the patch
     pushd "${staging}" >/dev/null || die 'Failed to cd into staging area: %s' "${staging}"
 
+    # vendor crates
+    pushd "${prefix}" >/dev/null || die "pushd failed"
+    vendor_rust_crates
+    popd >/dev/null || die "popd failed"
+
+    # commit and create patch
     git init || die "git init failed"
-    git add . || die "git add failed"
+    git add -- "${include[@]/#/"${prefix%/}/"}" "${exclude[@]/#/":(exclude)${prefix%/}/"}"|| die "git add failed"
     git commit --no-gpg-sign -m "bcachefs-tools ${ bch_version_string "${rev}"; }" || die "git commit failed"
     git format-patch --stdout --root > "${dest}" || die "failed to write patch file"
 
