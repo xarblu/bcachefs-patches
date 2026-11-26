@@ -306,10 +306,11 @@ function glue_patch() {
         die 'Output directory has no glue subdirectory but one is expected at: %s' "${glue_dir}"
     fi
 
-    # kconf is always expected/required,
+    # kconf and version are always expected/required,
     # others are version dependent
     local -a glue=(
         "${glue_dir}/bcachefs-kconf.patch"
+        "${glue_dir}/bcachefs-module-version.patch"
     )
 
     if [[ -d "${glue_dir}/${bcachefs_tag}/" ]]; then
@@ -328,146 +329,50 @@ function glue_patch() {
     done
 }
 
-function module_version_patch() {
-    if (( ! GLUE )); then
-        log 'Skipping module version patch (--no-glue)'
-        return 0
-    fi
-
-    local version_string="${1}"
-    local module_version_patch="${OUT_FILE%/*}/glue/bcachefs-module-version.patch"
-
-    if [[ ! -f "${module_version_patch}" ]]; then
-        log 'Module version patch does not exist: %s' "${module_version_patch}"
-        exit 1
-    fi
-
-    log 'Appending module version patch with version: %s' "${version_string}"
-    perl -pe "s/%%BCACHEFS_VERSION_STRING%%/${version_string}/" "${module_version_patch}"
-}
-
-# rough adaptation of dkms/install.rs' "fn crates()"
-# to resolve crates to vendor
-#
-# should be called from within the staging area's project root
-function vendor_rust_crates() {
-    local crates crate name src vendor dest
-
-    # shellcheck disable=SC2016
-    local -a jq_pipeline=(
-        '. as $root |'
-
-        # bcachefs-kernel crate metadata
-        '$root.packages[] | select(.name == "bcachefs-kernel") as $bcachefs_kernel |'
-
-        # crates wanted by kernel module
-        '$bcachefs_kernel.metadata.dkms.crates as $wanted |'
-
-        # dep ids required by bcachefs-kernel
-        '[$root.resolve.nodes[] | select(.id == $bcachefs_kernel.id) | .deps[].pkg] as $dep_ids |'
-
-        # crate metadata for all bcachefs-kernel deps
-        '[$root.packages[] | select(.id as $id | $dep_ids | any(. == $id))] as $deps |'
-
-        # crate metadata for all $wanted crated
-        '[$deps[] | select(.name as $name | $wanted | any(. == $name))] as $vendor |'
-
-        # the path for each crate to be vendored
-        '$vendor[] | {"name": .name, "dir": .manifest_path | rtrimstr("/Cargo.toml")}'
-    )
-
-    # sanity check we're in the correct directory
-    vendor="${PWD}/fs/vendor"
-    [[ -d "${vendor}" ]] || die "${vendor} does not exist. Wrong PWD?"
-
-    # fetch crates
-    log "Fetching crates for vendoring"
-    cargo fetch --locked || die "Failed to fetch crates"
-
-    # find crates to vendor
-    crates=$(
-        set -eo pipefail
-        cargo metadata --format-version 1 --locked | jq -c "${jq_pipeline[*]}"
-    ) || die "Could not get crates to vendor"
-
-    # rewrite as array
-    mapfile -t crates <<<"${crates}"
-
-    # copy crates
-    for crate in "${crates[@]}"; do
-        name=$(jq -r .name <<< "${crate}") || die "Could not parse crate: ${crate}"
-        src=$(jq -r .dir <<< "${crate}") || die "Could not parse crate: ${crate}"
-
-        dest="${vendor}/${name}"
-
-        log "Vendoring crate ${name@Q} from ${src@Q} to ${dest@Q}"
-
-        [[ ! -d "${dest}" ]] || die "Destination already exists in staging area"
-        mkdir "${dest}" || die "Could not create ${dest@Q}"
-
-        tar -C "${src}" -cf - --exclude-vcs --exclude-vcs-ignor . \
-            | tar -C "${dest}" -xf - \
-            || die "Could not copy files"
-    done
-}
-
+# stage dkms module for a given bcachefs revision
+# and dump the required parts into a Linux tree compatible git patch
 function bcachefs_patch_from_tools_rev() {
-    local rev="${1}"
+    local bch_version="${1}"
     local dest="${2}"
-    local staging
+    local tmp bch_tools dkms
 
-    # prefix where bcachefs will live in the kernel tree
-    local prefix="fs/bcachefs/"
+    # preparation
+    tmp="$(mktemp -d)" || die "Failed to create tmpdir ${tmp}"
 
-    # git pathspecs included in the patch
-    local include=(
-        fs
-        os
-    )
-
-    # git pathspecs to exclude from the include set above
-    local exclude=(
-        os/linux_user
-    )
-
-    # preperation
-    staging="$(mktemp -d)" || die "Failed to create staging dir ${staging}"
-
-    log "Preparing staging area in ${staging}"
-
-    if ! pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null; then
-        log 'Failed to cd into bcachefs-tools source tree: %s' "${BCACHEFS_TOOLS_REPO}"
-        exit 1
-    fi
+    log "Preparing staging area in ${tmp}"
+    bch_tools="${tmp}/bcachefs-tools"
+    dkms="${tmp}/dkms"
+    mkdir "${bch_tools}" || die "Failed to create ${bch_tools}"
+    mkdir "${dkms}" || die "Failed to create ${dkms}"
 
     # fetch bcachefs files from bcachefs-tools
     # and transform them to linux source tree structure on the fly
-    if ! git archive --prefix="${prefix}" "${rev}" | tar -C "${staging}" -x -f - ; then
-        die "Failed to snapshot bcachefs-tools repo into ${staging}"
+    pushd "${BCACHEFS_TOOLS_REPO}" >/dev/null || die "pushd ${BCACHEFS_TOOLS_REPO} failed"
+    if ! git archive --format=tar "${bch_version}" | tar -C "${bch_tools}" -x -f - ; then
+        die "Failed to snapshot bcachefs-tools repo into ${bch_tools}"
     fi
     popd >/dev/null || die "popd failed"
 
-    # perform any required modifications and commit the patch
-    pushd "${staging}" >/dev/null || die 'Failed to cd into staging area: %s' "${staging}"
-
-    # vendor crates
-    pushd "${prefix}" >/dev/null || die "pushd failed"
-    vendor_rust_crates
+    # use bcachefs-dkms to stage module sources and vendor crates
+    pushd "${bch_tools}" >/dev/null || die "pushd ${bch_tools} failed"
+    printf '%s' "${bch_version}" > .version || die "Failed to write .version"
+    make version.h || die "Failed to make version.h"
+    cargo run --package bcachefs-dkms -- "${dkms}" || die "bcachefs-dkms failed"
     popd >/dev/null || die "popd failed"
 
     # commit and create patch
+    pushd "${dkms}/src" >/dev/null || die "pushd ${dkms}/src failed"
     git init || die "git init failed"
-    git add -- "${include[@]/#/"${prefix%/}/"}" "${exclude[@]/#/":(exclude)${prefix%/}/"}"|| die "git add failed"
-    git commit --no-gpg-sign -m "bcachefs-tools ${ bch_version_string "${rev}"; }" || die "git commit failed"
+    git add . || die "git add failed"
+    git commit --no-gpg-sign -m "bcachefs-tools ${bch_version}" || die "git commit failed"
     git format-patch --stdout --root > "${dest}" || die "failed to write patch file"
-
     popd >/dev/null || die "popd failed"
 
     log "Successfully created base patch"
 
     # cleanup
-    if confirm "Remove staging dir ${staging}?"; then
-        rm -rf "${staging}" || die "rm failed"
+    if confirm "Remove tmp dir ${tmp}?"; then
+        rm -rf "${tmp}" || die "rm failed"
     fi
 }
 
@@ -484,9 +389,8 @@ function main() {
         "${bcachefs_tools_commit}"
 
     if confirm "Write patch to ${OUT_FILE}?"; then
-        bcachefs_patch_from_tools_rev "${bcachefs_tools_commit}" "${OUT_FILE}"
+        bcachefs_patch_from_tools_rev "${bcachefs_version_string}" "${OUT_FILE}"
         glue_patch "${bcachefs_tag}" >> "${OUT_FILE}"
-        module_version_patch "${bcachefs_version_string}" >> "${OUT_FILE}"
         return 0
     fi
     

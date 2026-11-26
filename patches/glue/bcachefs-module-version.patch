@@ -1,28 +1,29 @@
-From 0baecebf8380c3c53a740d63c59242ffca5afb00 Mon Sep 17 00:00:00 2001
+From 086ba2912e46624ed9c5c75140b3dc08a20eb119 Mon Sep 17 00:00:00 2001
 From: Xarblu <xarblu@protonmail.com>
 Date: Mon, 23 Feb 2026 19:28:06 +0100
 Subject: [PATCH] bcachefs: unconditional module version
 
 Signed-off-by: Xarblu <xarblu@protonmail.com>
 ---
- fs/bcachefs/fs/Makefile | 4 ++++
- 1 file changed, 4 insertions(+)
+ fs/bcachefs/Makefile | 5 +++++
+ 1 file changed, 5 insertions(+)
 
-diff --git a/fs/bcachefs/fs/Makefile b/fs/bcachefs/fs/Makefile
-index 618dd3393cd5..5b1e8373e32f 100644
---- a/fs/bcachefs/fs/Makefile
-+++ b/fs/bcachefs/fs/Makefile
-@@ -29,6 +29,10 @@ endif
+diff --git a/fs/bcachefs/Makefile b/fs/bcachefs/Makefile
+index c0c9d466d01f..1235cd925927 100644
+--- a/fs/bcachefs/Makefile
++++ b/fs/bcachefs/Makefile
+@@ -29,6 +29,11 @@ endif
  bcachefs-config-cppflags := \
  	$(foreach o,DEBUG INJECT_TRANSACTION_RESTARTS PATH_TRACEPOINTS TESTS,$(if $(BCACHEFS_$(o)),-DCONFIG_BCACHEFS_$(o)=1)) \
  	$(if $(CONFIG_QUOTA),-DCONFIG_BCACHEFS_QUOTA=1)
 +else
-+# The module's version, in its .modinfo: init/module.rs, embedded at patch creation time
++# Patched in-tree build - the patch has a fixed version.h
++bcachefs-version := $(shell sed -n 's/.*bcachefs_version "\(.*\)".*/\1/p' $(src)/version.h 2>/dev/null)
 +RUSTFLAGS_mod.o += --cfg bch_version
-+export BCACHEFS_VERSION := %%BCACHEFS_VERSION_STRING%%
++export BCACHEFS_VERSION := $(bcachefs-version)
  endif
  
- # bindgen and rustc get these too (Makefile.rust): some change struct layouts
+ # The generated rust/extern.c includes our shim headers relative to fs/
 -- 
 2.56.1
 
